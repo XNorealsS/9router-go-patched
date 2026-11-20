@@ -170,6 +170,8 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 
 		r.Get("/api/gateway/system", gwPanel.HandleSystemStatus)
 		r.Post("/api/gateway/sync", gwPanel.HandleSyncNow)
+		r.Get("/api/gateway/integrations", gwPanel.HandleIntegrationsGet)
+		r.Post("/api/gateway/integrations/apply", gwPanel.HandleIntegrationsApply)
 		r.Post("/api/gateway/toggles", gwPanel.HandleToggles)
 		r.Post("/api/gateway/health/reset", gwPanel.HandleHealthReset)
 		r.Post("/api/gateway/update-check", gwPanel.HandleUpdateCheck)

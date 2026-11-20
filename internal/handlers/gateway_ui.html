@@ -240,6 +240,34 @@
 
       <div class="panel">
         <div class="panel-head">
+          <span>HERMES &amp; CLI TOOLS 1-CLICK INTEGRATION</span>
+          <span class="muted">Unified OpenAI / Anthropic / Responses endpoints</span>
+        </div>
+        <div class="panel-body">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+            <span class="muted">Target Model:</span>
+            <select id="intModelSelect">
+              <option value="auto">auto (Multi-Provider Best)</option>
+              <option value="free-pool">free-pool (Fallback Pool)</option>
+              <option value="auto-reasoning">auto-reasoning</option>
+              <option value="deepseek-chat">deepseek-chat</option>
+              <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+            </select>
+            <span class="muted" id="intStatusNote"></span>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Tool</th><th>Status</th><th>Config / Snippet</th><th>Action</th></tr>
+            </thead>
+            <tbody id="intBody">
+              <tr><td colspan="4" class="muted">Loading integrations...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <span>SYNCHRONIZED MODEL CATALOG &amp; CAPABILITIES</span>
           <span class="muted" id="aliasHealth">-</span>
         </div>
@@ -461,6 +489,44 @@
         const logsData = await api("/api/gateway/logs");
         const lines = logsData.logs || [];
         $("logBox").textContent = lines.length ? lines.join("\n") : "(no gateway logs captured yet)";
+
+        try {
+          const intData = await api("/api/gateway/integrations");
+          const sel = $("intModelSelect");
+          const curVal = sel.value || "auto";
+          if (intData.models && intData.models.length) {
+            sel.innerHTML = intData.models.map(m => '<option value="' + esc(m) + '">' + esc(m) + '</option>').join("");
+            sel.value = curVal;
+          }
+          const tools = intData.tools || [];
+          $("intBody").innerHTML = tools.map(t => {
+            const st = t.linked
+              ? '<span class="pill pill-ok">linked</span>'
+              : (t.installed ? '<span class="pill pill-warn">installed</span>' : '<span class="pill">not installed</span>');
+            const btn = t.canApply
+              ? '<button class="btn btn-red" data-apply-tool="' + esc(t.id) + '">' + (t.linked ? 'Update Config' : '1-Click Connect') + '</button>'
+              : '<span class="muted">copy snippet</span>';
+            return '<tr><td><strong>' + esc(t.name) + '</strong><div class="muted">' + esc(t.configPath || '') + '</div></td><td>' + st + '</td><td><pre style="margin:0;white-space:pre-wrap;font-size:11px;color:var(--muted);">' + esc(t.snippet) + '</pre></td><td>' + btn + '</td></tr>';
+          }).join("");
+          $("intBody").querySelectorAll("[data-apply-tool]").forEach((btn) => {
+            btn.addEventListener("click", async () => {
+              const tool = btn.getAttribute("data-apply-tool");
+              const model = $("intModelSelect").value || "auto";
+              btn.textContent = "Applying...";
+              try {
+                const res = await api("/api/gateway/integrations/apply", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ tool, model })
+                });
+                $("intStatusNote").textContent = "Linked " + res.tool + " -> " + res.configPath + " (" + res.model + ")";
+              } catch (e) {
+                $("intStatusNote").textContent = "Error: " + e.message;
+              }
+              loadAll();
+            });
+          });
+        } catch (e) {}
       } catch (err) {
         if (err.message === "HTTP 401") sessionStorage.removeItem(KEY_STORAGE);
         showAuth(err.message);
