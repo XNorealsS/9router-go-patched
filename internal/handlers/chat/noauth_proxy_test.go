@@ -1,9 +1,14 @@
 package chat
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"9router/proxy/internal/db"
+	"9router/proxy/internal/providers"
+	internalproxy "9router/proxy/internal/proxy"
 )
 
 func TestGetBestConnection_NoAuth_WithProxyStrategy(t *testing.T) {
@@ -63,5 +68,32 @@ func TestGetBestConnection_NoAuth_WithProxyStrategy(t *testing.T) {
 
 	if connData.ProxyPoolID != poolID {
 		t.Errorf("expected ProxyPoolID %s from settings strategy, got %s", poolID, connData.ProxyPoolID)
+	}
+}
+
+func TestNoAuth_OmitsDummyBearerHeader(t *testing.T) {
+	var seenAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := &providers.ProviderConfig{
+		BaseURL:       srv.URL,
+		AuthHeader:    "Authorization",
+		AuthScheme:    "bearer",
+		NoAuth:        true,
+		DefaultAPIKey: "public",
+	}
+
+	resp, err := internalproxy.ForwardOpenAI(context.Background(), srv.Client(), cfg, "public", []byte(`{"model":"kilo-auto/free"}`), false)
+	if err != nil {
+		t.Fatalf("ForwardOpenAI with noAuth failed: %v", err)
+	}
+	_ = resp.Body.Close()
+	if seenAuth != "" {
+		t.Fatalf("expected empty Authorization header for NoAuth public key, got %q", seenAuth)
 	}
 }

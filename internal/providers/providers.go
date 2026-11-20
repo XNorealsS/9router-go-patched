@@ -654,9 +654,12 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 	"kilo-gateway": {
-		BaseURL:    "https://api.kilo.ai/api/gateway/chat/completions",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
+		BaseURL:       "https://api.kilo.ai/api/gateway/chat/completions",
+		AuthHeader:    "Authorization",
+		AuthScheme:    "bearer",
+		NoAuth:        true,
+		DefaultAPIKey: "public",
+		StaticHeaders: map[string]string{"User-Agent": "kilo-cli"},
 	},
 	"llm7": {
 		BaseURL:    "https://api.llm7.io/v1/chat/completions",

@@ -11,7 +11,8 @@ import (
 // ForwardOpenAI sends an OpenAI-format request to the provider endpoint.
 func ForwardOpenAI(ctx context.Context, client *http.Client, cfg *providers.ProviderConfig, apiKey string, body []byte, isStream bool) (*http.Response, error) {
 	headers := map[string]string{}
-	if !cfg.NoAuth {
+	hasCustomKey := apiKey != "" && apiKey != "public" && apiKey != cfg.DefaultAPIKey
+	if !cfg.NoAuth || hasCustomKey {
 		switch cfg.AuthScheme {
 		case "bearer":
 			headers[cfg.AuthHeader] = "Bearer " + apiKey

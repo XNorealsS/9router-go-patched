@@ -344,6 +344,33 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	{
+		seen := make(map[string]bool, len(data))
+		for _, d := range data {
+			seen[d.ID] = true
+		}
+		for _, id := range []string{
+			"kilo-gateway/kilo-auto/free",
+			"kilo-gateway/nvidia/nemotron-3-ultra-550b-a55b:free",
+			"kilo-gateway/nvidia/nemotron-3.5-super-vl:free",
+			"kilo-gateway/nvidia/nemotron-3.5-lightning:free",
+			"kilo-gateway/inclusionai/ling-3.2-flash:free",
+			"kilo-gateway/baidu/ernie-5.5-flash-preview:free",
+			"kilo-gateway/recursive/flint-v1.0:free",
+			"kilo-gateway/liquid/lfm-3-1.7b:free",
+		} {
+			if seen[id] {
+				continue
+			}
+			data = append(data, modelObj{
+				ID:      id,
+				Object:  "model",
+				Created: now,
+				OwnedBy: "kilo-gateway",
+			})
+		}
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
 		"data":   data,
