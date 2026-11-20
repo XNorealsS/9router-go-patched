@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/log"
@@ -110,10 +111,16 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 	var baseCfg *providers.ProviderConfig
 
 	if connData != nil && connData.BaseURL != "" {
-		baseCfg = &providers.ProviderConfig{
-			BaseURL:    connData.BaseURL,
-			AuthHeader: constants.HeaderAuthorization,
-			AuthScheme: constants.AuthSchemeBearer,
+		if cfg, ok := providers.KnownProviders[provider]; ok {
+			cloned := cfg
+			cloned.BaseURL = connData.BaseURL
+			baseCfg = &cloned
+		} else {
+			baseCfg = &providers.ProviderConfig{
+				BaseURL:    connData.BaseURL,
+				AuthHeader: constants.HeaderAuthorization,
+				AuthScheme: constants.AuthSchemeBearer,
+			}
 		}
 	} else if cfg, ok := providers.KnownProviders[provider]; ok {
 		// Clone config so per-request headers don't mutate global registry
@@ -149,12 +156,14 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 	if connData != nil {
 		var relayURL string
 		var noProxy string
+		var relaySecret string
 
 		if connData.ProxyPoolID != "" {
 			if pool, err := h.Repo.GetProxyPool(connData.ProxyPoolID); err == nil && pool != nil && pool.IsActive {
 				if pool.Type == "vercel" || pool.Type == "cloudflare" || pool.Type == "deno" {
 					relayURL = pool.NextURL()
 					noProxy = pool.NoProxy
+					relaySecret = pool.RelaySecret
 				}
 			}
 		}
@@ -170,6 +179,9 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 		if relayURL != "" && !internalproxy.ShouldBypassNoProxy(baseCfg.BaseURL, noProxy) {
 			cloned := *baseCfg
 			cloned.StaticHeaders = internalproxy.BuildEdgeRelayHeaders(baseCfg.BaseURL, cloned.StaticHeaders)
+			if relaySecret != "" {
+				cloned.StaticHeaders["x-relay-secret"] = relaySecret
+			}
 			cloned.BaseURL = relayURL
 			return &cloned, nil
 		}
@@ -192,12 +204,20 @@ func extractAPIKey(connData *ConnectionData) string {
 
 // GetClientForConnection returns an http.Client configured with ProxyPool transport if set.
 func (h *ChatHandler) GetClientForConnection(connData *ConnectionData) *http.Client {
-	return h.getClientForConnection(connData)
+	client, _ := h.getClientForConnectionChecked(connData)
+	if client != nil {
+		return client
+	}
+	return h.Client
 }
 
 func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Client {
+	return h.GetClientForConnection(connData)
+}
+
+func (h *ChatHandler) getClientForConnectionChecked(connData *ConnectionData) (*http.Client, error) {
 	if connData == nil {
-		return h.Client
+		return h.Client, nil
 	}
 
 	var proxyURLStr string
@@ -209,8 +229,10 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 		pool, err := h.Repo.GetProxyPool(connData.ProxyPoolID)
 		if err == nil && pool != nil && pool.IsActive {
 			proxyURLStr = pool.NextURL()
-			proxyType = pool.Type
+			proxyType = strings.ToLower(strings.TrimSpace(pool.Type))
 			strictProxy = pool.StrictProxy
+		} else if err != nil {
+			log.Warn("proxy", "lookup proxy pool failed", "pool", connData.ProxyPoolID, "error", err)
 		}
 	}
 
@@ -236,29 +258,67 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 	}
 
 	if proxyURLStr == "" {
-		return h.Client
+		return h.Client, nil
+	}
+
+	// Edge Relays (vercel, cloudflare, deno) rewrite URL and headers in getProviderConfig.
+	if proxyType == "vercel" || proxyType == "cloudflare" || proxyType == "deno" {
+		return h.Client, nil
 	}
 
 	parsedURL, err := url.Parse(proxyURLStr)
-	if err != nil {
-		log.Warn("proxy", "invalid proxy pool url", "pool", connData.ProxyPoolID, "url", proxyURLStr, "error", err)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		log.Warn("proxy", "invalid proxy pool url", "pool", connData.ProxyPoolID, "error", err)
 		if strictProxy {
-			log.Error("proxy", "strict proxy enabled but proxy url invalid", "url", proxyURLStr)
+			return nil, fmt.Errorf("strict proxy enabled but proxy URL is invalid")
 		}
-		return h.Client
+		return h.Client, nil
 	}
 
-	if proxyType == "http" || proxyType == "" {
-		transport := &http.Transport{
-			Proxy: http.ProxyURL(parsedURL),
+	scheme := strings.ToLower(parsedURL.Scheme)
+	switch scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		log.Warn("proxy", "unsupported proxy scheme", "pool", connData.ProxyPoolID, "scheme", scheme, "url", parsedURL.Redacted())
+		if strictProxy {
+			return nil, fmt.Errorf("strict proxy enabled but proxy scheme %q is unsupported", scheme)
 		}
-		return &http.Client{
-			Transport: transport,
-			Timeout:   h.Client.Timeout,
-		}
+		return h.Client, nil
 	}
 
-	// For Edge Relays (vercel, cloudflare, deno), standard client is used because
-	// URL rewriting and x-relay headers are handled at request time.
-	return h.Client
+	cacheKey := parsedURL.String()
+	h.proxyClientsMu.RLock()
+	if h.proxyClients != nil {
+		if cached, ok := h.proxyClients[cacheKey]; ok {
+			h.proxyClientsMu.RUnlock()
+			return cached, nil
+		}
+	}
+	h.proxyClientsMu.RUnlock()
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyURL(parsedURL)
+	transport.ResponseHeaderTimeout = 2 * time.Minute
+
+	var timeout time.Duration
+	if h.Client != nil {
+		timeout = h.Client.Timeout
+	}
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+	}
+
+	h.proxyClientsMu.Lock()
+	if h.proxyClients == nil {
+		h.proxyClients = make(map[string]*http.Client)
+	}
+	if existing, ok := h.proxyClients[cacheKey]; ok {
+		h.proxyClientsMu.Unlock()
+		return existing, nil
+	}
+	h.proxyClients[cacheKey] = client
+	h.proxyClientsMu.Unlock()
+
+	return client, nil
 }

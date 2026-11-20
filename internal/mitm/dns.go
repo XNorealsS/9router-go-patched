@@ -56,9 +56,9 @@ func RemoveHostsEntries() error {
 	if runtime.GOOS == "windows" {
 		return fmt.Errorf("Windows MITM not yet supported")
 	}
-	args := []string{"sed", "-i", "-e", "/# 9router-mitm/d"}
+	args := []string{"sed", "-i", "-e", "/# 9router-mitm/,/# end 9router-mitm/d"}
 	if runtime.GOOS == "darwin" {
-		args = []string{"sed", "-i", "", "-e", "/# 9router-mitm/d"}
+		args = []string{"sed", "-i", "", "-e", "/# 9router-mitm/,/# end 9router-mitm/d"}
 	}
 	args = append(args, "/etc/hosts")
 	return exec.Command("sudo", args...).Run()

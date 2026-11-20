@@ -457,7 +457,11 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 							if classification.CooldownMs > 0 && classification.CooldownMs <= 5000 {
 								cooldown := time.Duration(classification.CooldownMs) * time.Millisecond
 								log.Info("combo", "transient wait", "status", ue.StatusCode, "provider", modelInfo.Provider, "duration", cooldown)
-								time.Sleep(cooldown)
+								select {
+								case <-ctx.Done():
+									return
+								case <-time.After(cooldown):
+								}
 							} else {
 								log.Info("combo", "transient skip", "status", ue.StatusCode, "provider", modelInfo.Provider, "cooldownMs", classification.CooldownMs)
 							}
@@ -646,7 +650,11 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 							if classification.CooldownMs > 0 && classification.CooldownMs <= 5000 {
 								cooldown := time.Duration(classification.CooldownMs) * time.Millisecond
 								log.Info("combo", "transient wait", "status", ue.StatusCode, "provider", modelInfo.Provider, "duration", cooldown)
-								time.Sleep(cooldown)
+								select {
+								case <-ctx.Done():
+									return
+								case <-time.After(cooldown):
+								}
 							} else {
 								log.Info("combo", "transient skip", "status", ue.StatusCode, "provider", modelInfo.Provider, "cooldownMs", classification.CooldownMs)
 							}

@@ -53,7 +53,12 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 
 	totalTokens := usage.PromptTokens + usage.CompletionTokens
 	cost := pricing.EstimateCost(info.Model, usage.PromptTokens, usage.CompletionTokens)
-	metaJSON := fmt.Sprintf(`{"provider":"%s","model":"%s","connectionId":"%s"}`, info.Provider, info.Model, info.ConnectionID)
+	metaBytes, _ := json.Marshal(map[string]string{
+		"provider":     info.Provider,
+		"model":        info.Model,
+		"connectionId": info.ConnectionID,
+	})
+	metaJSON := string(metaBytes)
 
 	cachedTokens := usage.GetCachedTokens()
 	cacheCreationTokens := usage.CacheCreationInputTokens

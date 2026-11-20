@@ -157,7 +157,10 @@ func (h *ChatHandler) tryForwardWithConnection(
 		usagetracker.GetTracker().TrackPending(model, provider, connectionID, false, hasErr)
 	}()
 
-	httpClient := h.getClientForConnection(connData)
+	httpClient, proxyErr := h.getClientForConnectionChecked(connData)
+	if proxyErr != nil {
+		return proxyErr
+	}
 
 	if exec := executor.Get(provider); exec != nil {
 		fwdErr = exec(w, &executor.Request{
@@ -173,9 +176,9 @@ func (h *ChatHandler) tryForwardWithConnection(
 			TTFT:          &metrics.TTFT,
 		})
 	} else if providerCfg.IsGeminiNative() {
-		fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
+		fwdErr = h.forwardGeminiNativeRequestWithClient(ctx, httpClient, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
 	} else {
-		fwdErr = h.forwardRequest(ctx, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
+		fwdErr = h.forwardRequestWithClient(ctx, httpClient, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
 	}
 
 	var ue *upstreamError
@@ -198,9 +201,9 @@ func (h *ChatHandler) tryForwardWithConnection(
 					TTFT:          &metrics.TTFT,
 				})
 			} else if providerCfg.IsGeminiNative() {
-				fwdErr = h.forwardGeminiNativeRequest(ctx, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
+				fwdErr = h.forwardGeminiNativeRequestWithClient(ctx, httpClient, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
 			} else {
-				fwdErr = h.forwardRequest(ctx, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
+				fwdErr = h.forwardRequestWithClient(ctx, httpClient, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
 			}
 		}
 	}
@@ -211,7 +214,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 	status := "error"
 	if fwdErr == nil {
 		status = "200"
-	} else if ue, ok := fwdErr.(*upstreamError); ok && ue.StatusCode > 0 {
+	} else if errors.As(fwdErr, &ue) && ue.StatusCode > 0 {
 		status = fmt.Sprintf("%d", ue.StatusCode)
 	}
 	tracing.Record(tracing.Span{

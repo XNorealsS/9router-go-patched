@@ -18,9 +18,11 @@ type ProxyPool struct {
 	IsActive    bool     `json:"isActive"`
 	URLs        []string `json:"urls"`
 	Strategy    string   `json:"strategy"` // "round-robin" or "random"
-	Type        string   `json:"type"`     // "http", "vercel", "cloudflare", "deno"
+	Type        string   `json:"type"`     // "http", "https", "socks5", "vercel", "cloudflare", "deno"
 	NoProxy     string   `json:"noProxy"`
+	RelaySecret string   `json:"relaySecret,omitempty"`
 	StrictProxy bool     `json:"strictProxy"`
+	rawData     string   // raw DB JSON snapshot for cache invalidation
 	index       uint64   // atomic counter for round-robin
 }
 
@@ -37,6 +39,13 @@ func (r *Repo) GetProxyPool(poolID string) (*ProxyPool, error) {
 		return nil, fmt.Errorf("proxy pool %s: %w", poolID, err)
 	}
 
+	if cached, ok := proxyPoolCache.Load(poolID); ok {
+		cp := cached.(*ProxyPool)
+		if cp.rawData == data && cp.IsActive == (isActive == 1) {
+			return cp, nil
+		}
+	}
+
 	var raw map[string]any
 	if err := json.Unmarshal([]byte(data), &raw); err != nil {
 		return nil, fmt.Errorf("parse pool data: %w", err)
@@ -47,6 +56,7 @@ func (r *Repo) GetProxyPool(poolID string) (*ProxyPool, error) {
 		IsActive: isActive == 1,
 		Name:     handlerutil.GetString(raw, "name"),
 		Strategy: handlerutil.GetString(raw, "strategy"),
+		rawData:  data,
 	}
 
 	if urls, ok := raw["urls"].([]any); ok {
@@ -67,6 +77,7 @@ func (r *Repo) GetProxyPool(poolID string) (*ProxyPool, error) {
 		pool.Type = "http"
 	}
 	pool.NoProxy = handlerutil.GetString(raw, "noProxy")
+	pool.RelaySecret = handlerutil.GetString(raw, "relaySecret")
 	if sp, ok := raw["strictProxy"].(bool); ok {
 		pool.StrictProxy = sp
 	}
@@ -75,12 +86,15 @@ func (r *Repo) GetProxyPool(poolID string) (*ProxyPool, error) {
 		pool.Strategy = "round-robin"
 	}
 
+	// Replace stale entry if DB config changed, otherwise preserve existing pointer.
 	if cached, ok := proxyPoolCache.Load(poolID); ok {
-		return cached.(*ProxyPool), nil
+		cp := cached.(*ProxyPool)
+		if cp.rawData == data && cp.IsActive == pool.IsActive {
+			return cp, nil
+		}
+		proxyPoolCache.Store(poolID, pool)
+		return pool, nil
 	}
-	// Store the freshly-read pool. If another goroutine won the race, return
-	// its value instead of overwriting — never mutate a value in the cache,
-	// since concurrent readers use it lock-free via NextURL.
 	actual, _ := proxyPoolCache.LoadOrStore(poolID, pool)
 	return actual.(*ProxyPool), nil
 }
@@ -102,6 +116,7 @@ type ProxyPoolData struct {
 	ProxyURL     string  `json:"proxyUrl"`
 	NoProxy      string  `json:"noProxy"`
 	Type         string  `json:"type"`
+	RelaySecret  string  `json:"relaySecret,omitempty"`
 	StrictProxy  bool    `json:"strictProxy"`
 	LastTestedAt *string `json:"lastTestedAt"`
 	LastError    *string `json:"lastError"`

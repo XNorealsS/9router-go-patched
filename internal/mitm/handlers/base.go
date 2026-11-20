@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -75,5 +76,16 @@ func PipeJSON(upstream *http.Response, w http.ResponseWriter) error {
 func SendError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	w.Write([]byte(fmt.Sprintf(`{"error":{"message":"%s","type":"mitm_error","code":%d}}`, msg, status)))
+	payload, err := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": msg,
+			"type":    "mitm_error",
+			"code":    status,
+		},
+	})
+	if err != nil {
+		w.Write([]byte(`{"error":{"message":"internal error","type":"mitm_error","code":500}}`))
+		return
+	}
+	w.Write(payload)
 }
