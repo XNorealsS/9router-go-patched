@@ -314,6 +314,36 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if h.Repo != nil {
+		if conns, cErr := h.Repo.GetProviderConnections("deepseek-web", true); cErr == nil && len(conns) > 0 {
+			seen := make(map[string]bool, len(data))
+			for _, d := range data {
+				seen[d.ID] = true
+			}
+			for _, id := range []string{
+				"deepseek-web/deepseek-chat",
+				"deepseek-web/deepseek-reasoner",
+				"deepseek-web/deepseek-v4-pro",
+				"deepseek-web/deepseek-v4-pro-think",
+				"deepseek-web/deepseek-v4-pro-search",
+				"deepseek-web/deepseek-v4-flash",
+			} {
+				if seen[id] {
+					continue
+				}
+				ctxLen, maxOut := providers.GetModelTokenLimits(id)
+				data = append(data, modelObj{
+					ID:                  id,
+					Object:              "model",
+					Created:             now,
+					OwnedBy:             "deepseek-web",
+					ContextLength:       ctxLen,
+					MaxCompletionTokens: maxOut,
+				})
+			}
+		}
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
 		"data":   data,

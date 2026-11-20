@@ -28,6 +28,7 @@ var ProviderAliasMap = map[string]string{
 	"cx":             "codex",
 	"dg":             "deepgram",
 	"ds":             "deepseek",
+	"ds-web":         "deepseek-web",
 	"el":             "elevenlabs",
 	"fal":            "fal-ai",
 	"fish":           "fish-audio",

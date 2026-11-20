@@ -48,6 +48,11 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 	},
+	"deepseek-web": {
+		BaseURL:    "https://chat.deepseek.com/api/v0/chat/completion",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"groq": {
 		BaseURL:    "https://api.groq.com/openai/v1/chat/completions",
 		AuthHeader: "Authorization",

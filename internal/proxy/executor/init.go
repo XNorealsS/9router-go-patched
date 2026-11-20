@@ -6,6 +6,7 @@ func RegisterAll() {
 	Register("openai", func() Executor { return ForwardOpenAI })
 	Register("anthropic", func() Executor { return ForwardOpenAI })
 	Register("deepseek", func() Executor { return ForwardOpenAI })
+	Register("deepseek-web", func() Executor { return ForwardDeepSeekWeb })
 	Register("groq", func() Executor { return ForwardOpenAI })
 	Register("nvidia", func() Executor { return ForwardOpenAI })
 	Register("openrouter", func() Executor { return ForwardOpenAI })

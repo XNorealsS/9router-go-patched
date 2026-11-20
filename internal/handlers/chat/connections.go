@@ -236,7 +236,13 @@ func extractAPIKey(connData *ConnectionData) string {
 	if connData.APIKey != "" {
 		return connData.APIKey
 	}
-	return connData.AccessToken
+	if connData.AccessToken != "" {
+		return connData.AccessToken
+	}
+	if connData.Cookie != "" {
+		return connData.Cookie
+	}
+	return connData.Token
 }
 
 // GetClientForConnection returns an http.Client configured with ProxyPool transport if set.
