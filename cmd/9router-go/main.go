@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -15,6 +16,7 @@ import (
 	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/urfave/cli/v2"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/config"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers"
@@ -205,12 +207,20 @@ func runServer(cCtx *cli.Context) error {
 		log.Printf("[security] WARNING: binding non-loopback host %q without CREDENTIAL_ENCRYPTION_KEY; stored SQLite provider credentials remain plaintext", host)
 	}
 	addr := fmt.Sprintf("%s:%d", host, cfg.Port)
+	dataDir := filepath.Dir(filepath.Dir(cfg.DatabasePath))
+	autoEngine := autonomy.NewEngine(repo, nil)
+	autoCtx, autoCancel := context.WithCancel(context.Background())
+	defer autoCancel()
+
 	handlers.SetupServerRouterWithGateway(r, repo, ts, dashProxy, handlers.GatewayRuntimeInfo{
 		StartTime:    time.Now(),
 		ListenAddr:   addr,
 		DashboardURL: dashURL,
 		DatabasePath: cfg.DatabasePath,
+		DataDir:      dataDir,
+		Engine:       autoEngine,
 	})
+	autoEngine.Start(autoCtx)
 	log.Printf("9Router Go Proxy (%s) starting on %s", updater.CurrentVersion, addr)
 
 	signals := make(chan os.Signal, 2)
@@ -233,6 +243,7 @@ func runServer(cCtx *cli.Context) error {
 
 	<-signals // first signal → begin graceful shutdown
 	fmt.Fprintln(os.Stdout, "\n  Shutting down...")
+	autoCancel()
 
 	// Signal in-flight SSE streams to end promptly: the stall reader closes each
 	// upstream body, handlers emit a final [DONE], and Shutdown completes well

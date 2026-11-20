@@ -1,12 +1,14 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/log"
@@ -30,14 +32,52 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 	// killing a stream that has already begun.
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 2 * time.Minute
-	return &ChatHandler{
-		Repo: repo,
-		Client: &http.Client{
-			Transport: transport,
-			Timeout:   0, // no timeout for streaming support
-		},
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   0, // no timeout for streaming support
+	}
+	h := &ChatHandler{
+		Repo:        repo,
+		Client:      client,
 		TokenSaver:  cfg,
 		stickyState: make(map[string]*comboStickyState),
+	}
+	h.Engine = autonomy.NewEngine(repo, &http.Client{Timeout: 20 * time.Second})
+	h.bindAutonomyCallbacks()
+	return h
+}
+
+// ConfigureGatewayBridge attaches unified 1-gateway dashboard URL, data directory, and shared engine.
+func (h *ChatHandler) ConfigureGatewayBridge(dashboardURL, dataDir string, eng *autonomy.Engine) {
+	h.DashboardURL = strings.TrimRight(strings.TrimSpace(dashboardURL), "/")
+	h.DataDir = strings.TrimSpace(dataDir)
+	if eng != nil {
+		h.Engine = eng
+	}
+	h.bindAutonomyCallbacks()
+}
+
+func (h *ChatHandler) bindAutonomyCallbacks() {
+	if h.Engine == nil {
+		return
+	}
+	h.Engine.RefreshFn = func(ctx context.Context, connID, currentToken string) (string, string, error) {
+		return h.refreshOAuthTokenIfExpired(connID, currentToken)
+	}
+	h.Engine.DiscoverFn = func(ctx context.Context, connID, accessToken string) (string, error) {
+		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, h.Engine.Client, accessToken)
+		if pid != "" {
+			h.storeAntigravityProjectID(connID, pid)
+			return pid, nil
+		}
+		if authFailed {
+			return "", fmt.Errorf("Cloud Code rejected access token (401/403)")
+		}
+		if noProject {
+			cacheProjectMissing(connID)
+			return "", fmt.Errorf("Antigravity account has no provisioned project; onboard via antigravity.google")
+		}
+		return "", nil
 	}
 }
 

@@ -73,7 +73,11 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 			excludeSet[id] = true
 		}
 
-		conn = nil
+		type rankedConn struct {
+			conn  *models.ProviderConnection
+			score int
+		}
+		var candidates []rankedConn
 		for _, c := range connections {
 			if excludeSet[c.ID] {
 				continue
@@ -84,8 +88,19 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 					continue
 				}
 			}
-			conn = c
-			break
+			candidates = append(candidates, rankedConn{
+				conn:  c,
+				score: scoreConnection(provider, c.Data),
+			})
+		}
+		if len(candidates) > 0 {
+			best := candidates[0]
+			for _, cand := range candidates[1:] {
+				if cand.score > best.score {
+					best = cand
+				}
+			}
+			conn = best.conn
 		}
 		if conn == nil {
 			return nil, nil, fmt.Errorf("no available connections for provider: %s (all excluded)", provider)
@@ -100,6 +115,28 @@ func (h *ChatHandler) getBestConnection(provider string, connectionID string, ex
 	}
 
 	return conn, &connData, nil
+}
+
+// scoreConnection ranks healthy unlocked connections using OAuth validity,
+// Antigravity project readiness, and prior backoff level.
+func scoreConnection(provider, rawData string) int {
+	score := 0
+	var dataMap map[string]any
+	if err := json.Unmarshal([]byte(rawData), &dataMap); err != nil {
+		return -100
+	}
+	if lvl, ok := dataMap["backoffLevel"].(float64); ok && lvl > 0 {
+		score -= int(lvl) * 10
+	}
+	if oauthData := providers.ParseOAuthConnection(dataMap); oauthData != nil {
+		if oauthData.AccessToken != "" && !oauthData.IsExpired() {
+			score += 20
+		}
+		if (provider == "antigravity" || provider == "gemini-cli") && oauthData.ProjectID != "" {
+			score += 30
+		}
+	}
+	return score
 }
 
 // GetProviderConfig returns the upstream configuration for a provider.

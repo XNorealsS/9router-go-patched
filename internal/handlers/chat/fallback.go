@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/tracing"
@@ -83,20 +84,37 @@ func (h *ChatHandler) handleAccountFallback(
 			lastErr = err
 		}
 		var ue *upstreamError
-		if errors.As(lastErr, &ue) && providers.RetryableStatusCodes[ue.StatusCode] {
-			// Extract error text from upstream body for classification
+		if errors.As(lastErr, &ue) {
 			errorText := extractErrorText(ue.Body)
-			// Get current backoff level from this connection
-			currentBackoffLevel := h.Repo.GetConnectionBackoffLevel(connObj.ID)
-			// Classify error to get dynamic cooldown
-			classification := providers.ClassifyError(ue.StatusCode, errorText, currentBackoffLevel)
-			cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
-			errMsg := errorText
-			if errMsg == "" {
-				errMsg = fmt.Sprintf("%d upstream error", ue.StatusCode)
+			if errorText == "" {
+				errorText = string(ue.Body)
 			}
-			h.Repo.LockConnectionModel(connObj.ID, model, cooldownSec, classification.NewBackoffLevel)
-			log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "status", ue.StatusCode, "cooldown_s", cooldownSec)
+			currentBackoffLevel := h.Repo.GetConnectionBackoffLevel(connObj.ID)
+			plan := autonomy.PlanRecovery(provider, model, ue.StatusCode, errorText, currentBackoffLevel)
+			if h.Engine != nil {
+				if plan.MarkModelDeprecated {
+					h.Engine.Catalog.MarkModelDeprecated(provider, model, plan.Detected)
+				}
+				if plan.NeedsAdmin {
+					h.Engine.FlagConnectionNeedsAdmin(connObj.ID, plan.Reason)
+				}
+				h.Engine.Recorder.Record(autonomy.Event{
+					Category:     autonomy.CategoryRecovery,
+					Provider:     provider,
+					ConnectionID: connObj.ID,
+					Model:        model,
+					Detected:     plan.Detected,
+					Action:       string(plan.Strategy),
+					Reason:       plan.Reason,
+					Outcome:      autonomyOutcome(plan.NeedsAdmin, plan.ShouldFallback),
+					NeedsAdmin:   plan.NeedsAdmin,
+				})
+			}
+			if !plan.ShouldFallback || !providers.RetryableStatusCodes[ue.StatusCode] {
+				return lastErr
+			}
+			h.Repo.LockConnectionModel(connObj.ID, model, plan.CooldownSec, plan.NewBackoffLevel)
+			log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "status", ue.StatusCode, "cooldown_s", plan.CooldownSec, "strategy", plan.Strategy)
 			excludeIDs = append(excludeIDs, c.ID)
 			continue
 		}
@@ -106,6 +124,16 @@ func (h *ChatHandler) handleAccountFallback(
 		return lastErr
 	}
 	return fmt.Errorf("no available connections for provider: %s", provider)
+}
+
+func autonomyOutcome(needsAdmin, willRetry bool) autonomy.Outcome {
+	if needsAdmin {
+		return autonomy.OutcomeNeedsAdmin
+	}
+	if willRetry {
+		return autonomy.OutcomeDegraded
+	}
+	return autonomy.OutcomeFailed
 }
 
 // tryForwardWithConnection attempts a single upstream request using the given connection data.
@@ -226,6 +254,10 @@ func (h *ChatHandler) tryForwardWithConnection(
 	})
 
 	if fwdErr == nil {
+		if h.Engine != nil {
+			h.Engine.Catalog.MarkModelVerified(provider, model)
+			h.Engine.ClearConnectionAdminFlag(connectionID)
+		}
 		// Clear any existing model lock on success (matching Next.js clearAccountError)
 		if unlockErr := h.Repo.UnlockConnectionModel(connectionID, model); unlockErr != nil {
 			log.Warn("fallback", "unlock failed", "provider", provider, "model", model, "error", unlockErr)

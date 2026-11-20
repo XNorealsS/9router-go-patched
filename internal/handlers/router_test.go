@@ -38,7 +38,7 @@ func TestSetupRoutes(t *testing.T) {
 
 	repo := db.NewRepo(database)
 	r := chi.NewRouter()
-	SetupRoutes(r, repo, nil)
+	SetupServerRouterWithGateway(r, repo, nil, nil, GatewayRuntimeInfo{})
 
 	req := httptest.NewRequest("POST", "/chat/completions", nil)
 	w := httptest.NewRecorder()

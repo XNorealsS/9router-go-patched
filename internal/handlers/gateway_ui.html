@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>9Router // 1-Gateway System Console</title>
+  <title>9Router // Antigravity Automation Engine</title>
   <style>
     :root {
       --bg: #09090b;
@@ -15,6 +15,10 @@
       --red: #dc2626;
       --red-hover: #b91c1c;
       --red-tint: rgba(220, 38, 38, 0.14);
+      --ok: #22c55e;
+      --ok-tint: rgba(34, 197, 94, 0.12);
+      --warn: #eab308;
+      --warn-tint: rgba(234, 179, 8, 0.12);
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       --sans: "Inter", system-ui, -apple-system, sans-serif;
     }
@@ -28,219 +32,77 @@
       --red: #dc2626;
       --red-hover: #b91c1c;
       --red-tint: rgba(220, 38, 38, 0.08);
+      --ok: #15803d;
+      --ok-tint: rgba(21, 128, 61, 0.08);
+      --warn: #a16207;
+      --warn-tint: rgba(161, 98, 7, 0.08);
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      font-size: 14px;
-      line-height: 1.5;
-    }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; }
     .topbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 14px 24px;
-      border-bottom: 1px solid var(--border);
-      background: var(--surface);
-      position: sticky;
-      top: 0;
-      z-index: 10;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 13px 24px; border-bottom: 1px solid var(--border); background: var(--surface);
+      position: sticky; top: 0; z-index: 10; flex-wrap: wrap;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-family: var(--mono);
-      font-weight: 700;
-      letter-spacing: .04em;
-      font-size: 14px;
-    }
-    .brand-mark {
-      width: 10px;
-      height: 10px;
-      background: var(--red);
-      display: inline-block;
-    }
-    .actions {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
+    .brand { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-weight: 700; letter-spacing: .04em; font-size: 14px; }
+    .brand-mark { width: 10px; height: 10px; background: var(--red); display: inline-block; }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .btn {
-      appearance: none;
-      border: 1px solid var(--border);
-      background: var(--surface-alt);
-      color: var(--text);
-      padding: 6px 12px;
-      border-radius: 4px;
-      font: 600 12px/1.2 var(--mono);
-      cursor: pointer;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
+      appearance: none; border: 1px solid var(--border); background: var(--surface-alt); color: var(--text);
+      padding: 6px 12px; border-radius: 4px; font: 600 12px/1.2 var(--mono); cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
     }
     .btn:hover { border-color: var(--text); }
-    .btn-red {
-      background: var(--red);
-      border-color: var(--red);
-      color: #ffffff;
-    }
+    .btn-red { background: var(--red); border-color: var(--red); color: #ffffff; }
     .btn-red:hover { background: var(--red-hover); border-color: var(--red-hover); }
-    .container {
-      max-width: 1180px;
-      margin: 0 auto;
-      padding: 24px;
-    }
+    .container { max-width: 1240px; margin: 0 auto; padding: 20px 24px 48px; }
     .auth-box {
-      max-width: 460px;
-      margin: 72px auto;
-      padding: 24px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      max-width: 480px; margin: 64px auto; padding: 24px; background: var(--surface);
+      border: 1px solid var(--border); border-radius: 6px;
     }
-    .auth-box h1 {
-      margin: 0 0 8px;
-      font-size: 18px;
-      font-family: var(--mono);
-    }
-    .muted { color: var(--muted); font-size: 13px; }
+    .auth-box h1 { margin: 0 0 8px; font-size: 17px; font-family: var(--mono); }
+    .muted { color: var(--muted); font-size: 12.5px; }
     .input {
-      width: 100%;
-      padding: 9px 12px;
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      font-family: var(--mono);
-      font-size: 13px;
-      margin: 12px 0;
+      width: 100%; padding: 9px 12px; background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px; font-family: var(--mono); font-size: 13px; margin: 12px 0;
     }
     .input:focus { outline: none; border-color: var(--red); }
-    .grid-4 {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 12px;
-      margin-bottom: 20px;
+    .status-banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+      padding: 12px 16px; border: 1px solid var(--border); background: var(--surface);
+      border-radius: 4px; margin-bottom: 16px;
     }
-    .stat {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 14px 16px;
-    }
-    .stat-label {
-      font: 600 11px/1.2 var(--mono);
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-    .stat-val {
-      margin-top: 6px;
-      font: 700 17px/1.3 var(--mono);
-      font-variant-numeric: tabular-nums;
-      word-break: break-all;
-    }
-    .stat-sub {
-      margin-top: 4px;
-      font: 12px/1.3 var(--mono);
-      color: var(--muted);
-    }
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      margin-bottom: 18px;
-    }
+    .status-banner.needs-admin { border-color: var(--red); background: var(--red-tint); }
+    .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .stat { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 14px 16px; }
+    .stat-label { font: 600 11px/1.2 var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .stat-val { margin-top: 6px; font: 700 17px/1.3 var(--mono); font-variant-numeric: tabular-nums; }
+    .stat-sub { margin-top: 4px; font: 12px/1.3 var(--mono); color: var(--muted); word-break: break-word; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; margin-bottom: 16px; }
     .panel-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      font: 700 13px/1.2 var(--mono);
-      letter-spacing: .03em;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      padding: 11px 16px; border-bottom: 1px solid var(--border);
+      font: 700 12.5px/1.2 var(--mono); letter-spacing: .03em;
     }
-    .panel-body { padding: 16px; }
-    .split {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-    @media (max-width: 860px) { .split { grid-template-columns: 1fr; } }
-    .toggles {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-      gap: 10px;
-    }
-    .toggle-card {
-      border: 1px solid var(--border);
-      background: var(--surface-alt);
-      padding: 12px;
-      border-radius: 4px;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      font-family: var(--mono);
-      font-size: 13px;
-      font-weight: 600;
-    }
-    select {
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-family: var(--mono);
-      font-size: 12px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-    }
-    th, td {
-      text-align: left;
-      padding: 9px 10px;
-      border-bottom: 1px solid var(--border);
-    }
+    .panel-body { padding: 14px 16px; }
+    .split { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 16px; }
+    @media (max-width: 920px) { .split { grid-template-columns: 1fr; } }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
-    .pill {
-      display: inline-block;
-      padding: 2px 7px;
-      border-radius: 3px;
-      font: 600 11px/1.3 var(--mono);
-      border: 1px solid var(--border);
-    }
-    .pill-red {
-      background: var(--red-tint);
-      border-color: var(--red);
-      color: var(--red);
-    }
+    .pill { display: inline-block; padding: 2px 7px; border-radius: 3px; font: 600 11px/1.3 var(--mono); border: 1px solid var(--border); margin: 1px 2px 1px 0; }
+    .pill-red { background: var(--red-tint); border-color: var(--red); color: var(--red); }
+    .pill-ok { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
+    .pill-warn { background: var(--warn-tint); border-color: var(--warn); color: var(--warn); }
+    details.panel summary { cursor: pointer; list-style: none; }
+    details.panel summary::-webkit-details-marker { display: none; }
+    .toggles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+    .toggle-card { border: 1px solid var(--border); background: var(--surface-alt); padding: 12px; border-radius: 4px; display: flex; flex-direction: column; gap: 8px; }
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+    select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-family: var(--mono); font-size: 12px; }
     .log-box {
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      padding: 12px;
-      font: 12px/1.5 var(--mono);
-      max-height: 260px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 12px;
+      font: 11.5px/1.5 var(--mono); max-height: 240px; overflow: auto; white-space: pre-wrap; word-break: break-word;
     }
     .err { color: var(--red); font: 600 12px/1.4 var(--mono); margin-top: 8px; }
     .hidden { display: none; }
@@ -253,115 +115,91 @@
       <span>9ROUTER // 1-GATEWAY CONSOLE</span>
     </div>
     <div class="actions">
-      <a class="btn" href="/dashboard">Dashboard UI</a>
+      <a class="btn" href="/dashboard/providers">&larr; Dashboard</a>
+      <button class="btn" id="syncBtn" type="button">Sync Now</button>
       <button class="btn" id="themeBtn" type="button">Theme: Dark</button>
       <button class="btn" id="refreshBtn" type="button">Refresh</button>
-      <button class="btn hidden" id="logoutBtn" type="button">Lock</button>
+      <button class="btn hidden" id="logoutBtn" type="button">Key Logout</button>
     </div>
   </header>
 
   <main class="container">
-    <section id="authGate" class="auth-box">
+    <section id="authGate" class="auth-box hidden">
       <h1>GATEWAY AUTHENTICATION</h1>
-      <p class="muted">Enter any active 9Router API key from the Dashboard to manage the unified Go proxy, encryption status, token savers, and model locks.</p>
+      <p class="muted">Sign in to <a href="/dashboard" style="color:var(--red);">9Router Dashboard</a> first (session reuses automatically), or enter an active API key for direct headless access.</p>
       <form id="authForm">
         <input id="apiKeyInput" class="input" type="password" placeholder="sk-9r-..." autocomplete="off" required />
-        <button class="btn btn-red" type="submit" style="width:100%;justify-content:center;padding:10px 14px;">UNLOCK SYSTEM CONSOLE</button>
+        <button class="btn btn-red" type="submit" style="width:100%;justify-content:center;padding:10px 14px;">UNLOCK CONSOLE</button>
       </form>
       <div id="authErr" class="err hidden"></div>
     </section>
 
     <section id="consoleView" class="hidden">
+      <div id="statusBanner" class="status-banner">
+        <div>
+          <strong style="font-family:var(--mono);font-size:13px;" id="bannerTitle">ANTIGRAVITY ENGINE: INITIALIZING</strong>
+          <div class="muted" id="bannerDesc">Observing autonomous OAuth, model catalog, and routing recovery state.</div>
+        </div>
+        <span class="pill" id="bannerBadge">-</span>
+      </div>
+
+      <div id="adminAlertPanel" class="panel hidden" style="border-color:var(--red);">
+        <div class="panel-head" style="color:var(--red);"><span>ADMINISTRATOR ACTION REQUIRED</span></div>
+        <div class="panel-body" id="adminAlertBody"></div>
+      </div>
+
       <div class="grid-4">
         <div class="stat">
-          <div class="stat-label">Gateway Binary</div>
-          <div class="stat-val" id="stVersion">-</div>
-          <div class="stat-sub" id="stRuntime">-</div>
+          <div class="stat-label">Antigravity Engine</div>
+          <div class="stat-val" id="stAutoHealth">-</div>
+          <div class="stat-sub" id="stLastSync">-</div>
         </div>
         <div class="stat">
-          <div class="stat-label">Unified Dashboard</div>
-          <div class="stat-val" id="stDash">-</div>
+          <div class="stat-label">Model Catalog</div>
+          <div class="stat-val" id="stCatalog">-</div>
+          <div class="stat-sub" id="stCatalogSub">-</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Active Coding Sessions</div>
+          <div class="stat-val" id="stSessions">0</div>
+          <div class="stat-sub" id="stInFlight">0 in-flight requests</div>
+        </div>
+        <div class="stat">
+          <div class="stat-label">Gateway Runtime</div>
+          <div class="stat-val" id="stVersion">-</div>
           <div class="stat-sub" id="stBind">-</div>
         </div>
-        <div class="stat">
-          <div class="stat-label">Credential Storage</div>
-          <div class="stat-val" id="stEnc">-</div>
-          <div class="stat-sub" id="stDB">-</div>
-        </div>
-        <div class="stat">
-          <div class="stat-label">In-Flight Requests</div>
-          <div class="stat-val" id="stInFlight">0</div>
-          <div class="stat-sub" id="stUptime">-</div>
-        </div>
       </div>
 
       <div class="panel">
         <div class="panel-head">
-          <span>RUNTIME TOKEN SAVERS &amp; GUARD</span>
-          <button class="btn btn-red" id="checkUpdateBtn" type="button">Check Update</button>
-        </div>
-        <div class="panel-body">
-          <div class="toggles">
-            <div class="toggle-card">
-              <div class="toggle-row">
-                <span>RTK Compression</span>
-                <input type="checkbox" id="tgRtk" />
-              </div>
-              <span class="muted">Compact verbose command &amp; file outputs cleanly.</span>
-            </div>
-            <div class="toggle-card">
-              <div class="toggle-row">
-                <span>Caveman Output</span>
-                <input type="checkbox" id="tgCaveman" />
-              </div>
-              <select id="lvCaveman">
-                <option value="lite">lite</option>
-                <option value="full">full</option>
-                <option value="ultra">ultra</option>
-              </select>
-            </div>
-            <div class="toggle-card">
-              <div class="toggle-row">
-                <span>Ponytail Simplicity</span>
-                <input type="checkbox" id="tgPonytail" />
-              </div>
-              <select id="lvPonytail">
-                <option value="lite">lite</option>
-                <option value="full">full</option>
-                <option value="ultra">ultra</option>
-              </select>
-            </div>
-            <div class="toggle-card">
-              <div class="toggle-row">
-                <span>Injection Guard</span>
-                <input type="checkbox" id="tgGuard" />
-              </div>
-              <span class="muted">Audit/log prompt injection signatures before upstream.</span>
-            </div>
-          </div>
-          <div id="updateBanner" class="muted" style="margin-top:12px;font-family:var(--mono);"></div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="panel-head">
-          <span>PROVIDER CONNECTIONS &amp; MODEL LOCKS</span>
-          <button class="btn" id="resetAllBtn" type="button">Reset All Locks</button>
+          <span>ANTIGRAVITY CONNECTIONS &amp; OAUTH HEALTH</span>
+          <span class="muted" id="connSummary">-</span>
         </div>
         <div class="panel-body" style="padding:0;overflow-x:auto;">
           <table>
             <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Name</th>
-                <th>Project</th>
-                <th>Backoff</th>
-                <th>Active Locks</th>
-                <th>Action</th>
-              </tr>
+              <tr><th>Account</th><th>Project ID</th><th>Token Expiry</th><th>Backoff / Locks</th><th>Condition</th></tr>
             </thead>
-            <tbody id="connBody">
-              <tr><td colspan="6" class="muted">Loading...</td></tr>
+            <tbody id="agConnBody">
+              <tr><td colspan="5" class="muted">Loading...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span>AUTOMATION ACTIVITY &amp; SELF-HEALING EVENTS</span>
+          <span class="muted">Recent autonomous observations</span>
+        </div>
+        <div class="panel-body" style="padding:0;overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>Time</th><th>Subsystem</th><th>Detected</th><th>Action</th><th>Reason</th><th>Outcome</th></tr>
+            </thead>
+            <tbody id="eventsBody">
+              <tr><td colspan="6" class="muted">No automation events recorded yet.</td></tr>
             </tbody>
           </table>
         </div>
@@ -369,28 +207,95 @@
 
       <div class="split">
         <div class="panel">
-          <div class="panel-head"><span>LATENCY TRACES (p50 / p95)</span></div>
+          <div class="panel-head">
+            <span>AGENT SESSION DIAGNOSTICS</span>
+            <span class="muted">Turn &amp; thoughtSignature continuity</span>
+          </div>
+          <div class="panel-body" style="padding:0;overflow-x:auto;">
+            <table>
+              <thead>
+                <tr><th>Session</th><th>Model</th><th>Turns</th><th>Tools (Call/Res)</th><th>ThoughtSig</th></tr>
+              </thead>
+              <tbody id="sessBody">
+                <tr><td colspan="5" class="muted">No multi-turn coding sessions observed yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><span>ROUTING LATENCY (p50 / p95)</span></div>
           <div class="panel-body" style="padding:0;overflow-x:auto;">
             <table>
               <thead>
                 <tr><th>Provider / Model</th><th>Req</th><th>Err</th><th>p50</th><th>p95</th></tr>
               </thead>
               <tbody id="traceBody">
-                <tr><td colspan="5" class="muted">No spans recorded yet.</td></tr>
+                <tr><td colspan="5" class="muted">No latency spans recorded yet.</td></tr>
               </tbody>
             </table>
           </div>
         </div>
-        <div class="panel">
-          <div class="panel-head">
-            <span>GATEWAY CONSOLE LOGS</span>
-            <button class="btn" id="clearLogsBtn" type="button">Clear</button>
-          </div>
-          <div class="panel-body">
-            <div id="logBox" class="log-box">Loading...</div>
-          </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <span>SYNCHRONIZED MODEL CATALOG &amp; CAPABILITIES</span>
+          <span class="muted" id="aliasHealth">-</span>
+        </div>
+        <div class="panel-body" style="padding:0;overflow-x:auto;max-height:360px;">
+          <table>
+            <thead>
+              <tr><th>Model ID</th><th>Status</th><th>Quota</th><th>Limits (Ctx/Out)</th><th>Capabilities</th></tr>
+            </thead>
+            <tbody id="catalogBody">
+              <tr><td colspan="5" class="muted">Waiting for catalog sync...</td></tr>
+            </tbody>
+          </table>
         </div>
       </div>
+
+      <details class="panel">
+        <summary class="panel-head">
+          <span>ADVANCED &amp; EXCEPTIONAL OVERRIDES (COLLAPSED BY DEFAULT)</span>
+          <span class="muted">Click to expand manual controls &amp; logs</span>
+        </summary>
+        <div class="panel-body">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;">
+            <span class="muted" id="stEncInfo">-</span>
+            <div class="actions">
+              <button class="btn" id="resetAllBtn" type="button">Force Unlock All</button>
+              <button class="btn btn-red" id="checkUpdateBtn" type="button">Check Binary Update</button>
+            </div>
+          </div>
+          <div id="updateBanner" class="muted" style="margin-bottom:12px;font-family:var(--mono);"></div>
+
+          <div class="toggles" style="margin-bottom:16px;">
+            <div class="toggle-card">
+              <div class="toggle-row"><span>RTK Compression</span><input type="checkbox" id="tgRtk" /></div>
+              <span class="muted">Compact verbose command outputs cleanly.</span>
+            </div>
+            <div class="toggle-card">
+              <div class="toggle-row"><span>Caveman Output</span><input type="checkbox" id="tgCaveman" /></div>
+              <select id="lvCaveman"><option value="lite">lite</option><option value="full">full</option><option value="ultra">ultra</option></select>
+            </div>
+            <div class="toggle-card">
+              <div class="toggle-row"><span>Ponytail Simplicity</span><input type="checkbox" id="tgPonytail" /></div>
+              <select id="lvPonytail"><option value="lite">lite</option><option value="full">full</option><option value="ultra">ultra</option></select>
+            </div>
+            <div class="toggle-card">
+              <div class="toggle-row"><span>Injection Guard</span><input type="checkbox" id="tgGuard" /></div>
+              <span class="muted">Audit prompt injection patterns cleanly.</span>
+            </div>
+          </div>
+
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong style="font-family:var(--mono);font-size:12px;">GATEWAY CONSOLE LOGS</strong>
+            <button class="btn" id="clearLogsBtn" type="button">Clear</button>
+          </div>
+          <div id="logBox" class="log-box">Loading...</div>
+        </div>
+      </details>
     </section>
   </main>
 
@@ -406,24 +311,44 @@
     }
     applyTheme(localStorage.getItem(THEME_STORAGE) || "dark");
     $("themeBtn").addEventListener("click", () => {
-      const cur = document.documentElement.getAttribute("data-theme");
-      applyTheme(cur === "light" ? "dark" : "light");
+      applyTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
     });
 
     function getKey() { return sessionStorage.getItem(KEY_STORAGE) || ""; }
     async function api(path, opts = {}) {
-      const headers = Object.assign({ "X-API-Key": getKey() }, opts.headers || {});
-      const resp = await fetch(path, Object.assign({}, opts, { headers }));
+      const headers = Object.assign({}, opts.headers || {});
+      const key = getKey();
+      if (key) headers["X-API-Key"] = key;
+      const resp = await fetch(path, Object.assign({ credentials: "same-origin" }, opts, { headers }));
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error((data.error && data.error.message) || ("HTTP " + resp.status));
       return data;
+    }
+
+    function esc(s) {
+      return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    function fmtExpiry(secs, status) {
+      if (status === "expired") return '<span class="pill pill-red">expired</span>';
+      if (status === "missing") return '<span class="pill pill-red">missing</span>';
+      if (!secs || secs <= 0) return '<span class="pill">' + esc(status || "-") + '</span>';
+      const mins = Math.floor(secs / 60);
+      const cls = status === "expiring" ? "pill-warn" : "pill-ok";
+      return '<span class="pill ' + cls + '">' + mins + 'm remaining</span>';
+    }
+
+    function statusPill(st) {
+      if (st === "verified" || st === "ok") return '<span class="pill pill-ok">' + esc(st) + '</span>';
+      if (st === "deprecated" || st === "needs_admin" || st === "failed") return '<span class="pill pill-red">' + esc(st) + '</span>';
+      return '<span class="pill pill-warn">' + esc(st || "uncertain") + '</span>';
     }
 
     function showAuth(msg) {
       $("authGate").classList.remove("hidden");
       $("consoleView").classList.add("hidden");
       $("logoutBtn").classList.add("hidden");
-      if (msg) {
+      if (msg && msg !== "HTTP 401") {
         $("authErr").textContent = msg;
         $("authErr").classList.remove("hidden");
       } else {
@@ -434,23 +359,97 @@
     function showConsole() {
       $("authGate").classList.add("hidden");
       $("consoleView").classList.remove("hidden");
-      $("logoutBtn").classList.remove("hidden");
+      if (getKey()) $("logoutBtn").classList.remove("hidden");
+      else $("logoutBtn").classList.add("hidden");
     }
 
     async function loadAll() {
-      if (!getKey()) { showAuth(""); return; }
       try {
         const sys = await api("/api/gateway/system");
         showConsole();
+        const auto = sys.autonomy || {};
+        const overall = (auto.overallHealth || "unconfigured").toUpperCase();
+
         $("stVersion").textContent = "v" + sys.version;
-        $("stRuntime").textContent = sys.goVersion + " · " + sys.os + "/" + sys.arch;
-        $("stDash").textContent = sys.dashboardUrl ? (sys.dashboardOnline ? "CONNECTED" : "OFFLINE") : "HEADLESS";
-        $("stBind").textContent = sys.listenAddr + (sys.dashboardUrl ? (" → " + sys.dashboardUrl) : "");
-        $("stEnc").textContent = sys.credentialEncryptionEnabled ? "AES-256-GCM" : "SHARED PLAINTEXT";
-        $("stDB").textContent = sys.databaseSizeBytes ? ((sys.databaseSizeBytes / 1024).toFixed(1) + " KB · WAL") : sys.databasePath;
+        $("stBind").textContent = sys.listenAddr + (sys.dashboardOnline ? " (1-gateway active)" : " (headless)");
+        $("stEncInfo").textContent = "Credential Store: " + (sys.credentialEncryptionEnabled ? "AES-256-GCM" : "Shared SQLite") + (sys.databaseSizeBytes ? (" · " + (sys.databaseSizeBytes/1024).toFixed(1) + " KB") : "");
+
         const activeCount = Object.values((sys.inFlight && sys.inFlight.byModel) || {}).reduce((a, b) => a + b, 0);
-        $("stInFlight").textContent = String(activeCount);
-        $("stUptime").textContent = "uptime " + sys.uptime;
+        const sessList = auto.activeSessions || [];
+        $("stSessions").textContent = String(sessList.length);
+        $("stInFlight").textContent = activeCount + " active request(s)";
+
+        const cat = auto.catalog || {};
+        $("stAutoHealth").textContent = overall;
+        $("stLastSync").textContent = auto.lastSyncAt ? ("synced " + auto.lastSyncAt.replace("T"," ").slice(0,19) + "Z") : "pending first sync";
+        $("stCatalog").textContent = (cat.verifiedCount || 0) + " verified";
+        $("stCatalogSub").textContent = (cat.uncertainCount || 0) + " uncertain · " + (cat.deprecatedCount || 0) + " deprecated";
+
+        const banner = $("statusBanner");
+        banner.classList.toggle("needs-admin", overall === "NEEDS_ADMIN");
+        $("bannerBadge").className = "pill " + (overall === "AUTONOMOUS" ? "pill-ok" : (overall === "NEEDS_ADMIN" ? "pill-red" : "pill-warn"));
+        $("bannerBadge").textContent = overall;
+        $("bannerTitle").textContent = overall === "AUTONOMOUS"
+          ? "ANTIGRAVITY ENGINE: SELF-MANAGING"
+          : (overall === "NEEDS_ADMIN" ? "ANTIGRAVITY ENGINE: ADMIN INTERVENTION NEEDED" : (overall === "UNCONFIGURED" ? "CONNECT ANTIGRAVITY VIA OAUTH IN PROVIDERS" : "ANTIGRAVITY ENGINE: DEGRADED"));
+        $("bannerDesc").textContent = cat.lastError ? ("Last catalog note: " + cat.lastError) : "OAuth refresh, project discovery, model validation, and recovery run automatically.";
+
+        const pending = auto.pendingAdmin || [];
+        if (pending.length > 0) {
+          $("adminAlertPanel").classList.remove("hidden");
+          $("adminAlertBody").innerHTML = pending.map(p =>
+            '<div style="margin-bottom:6px;"><strong>' + esc(p.detected) + '</strong> — <span class="muted">' + esc(p.reason) + '</span></div>'
+          ).join("");
+        } else {
+          $("adminAlertPanel").classList.add("hidden");
+        }
+
+        const locksByID = {};
+        for (const rc of (sys.connections || [])) locksByID[rc.id] = rc;
+        const agConns = auto.connections || [];
+        const agBody = $("agConnBody");
+        $("connSummary").textContent = (sys.connections || []).length + " total DB connection(s)";
+        if (agConns.length === 0) {
+          agBody.innerHTML = '<tr><td colspan="5" class="muted">No Antigravity accounts connected yet. Open Dashboard &rarr; Providers to link Google OAuth.</td></tr>';
+        } else {
+          agBody.innerHTML = agConns.map(c => {
+            const rc = locksByID[c.id] || {};
+            const locks = (rc.activeLocks && rc.activeLocks.length)
+              ? rc.activeLocks.map(l => '<span class="pill pill-red">' + esc(l) + '</span>').join("")
+              : '<span class="pill">none</span>';
+            const cond = c.needsAdmin
+              ? '<span class="pill pill-red">needs admin: ' + esc(c.adminReason) + '</span>'
+              : (c.active ? '<span class="pill pill-ok">self-managing</span>' : '<span class="pill">disabled</span>');
+            return '<tr><td>' + esc(c.name || c.id) + '</td><td>' + esc(c.projectId || "-") + '</td><td>' + fmtExpiry(c.expiresInSecs, c.tokenStatus) + '</td><td>b=' + (c.backoffLevel || 0) + ' ' + locks + '</td><td>' + cond + '</td></tr>';
+          }).join("");
+        }
+
+        const events = auto.recentEvents || [];
+        $("eventsBody").innerHTML = events.length ? events.slice(0, 25).map(e =>
+          '<tr><td>' + esc((e.timestamp || "").replace("T"," ").slice(11,19)) + '</td><td>' + esc(e.category) + '</td><td>' + esc(e.detected) + '</td><td>' + esc(e.action) + '</td><td class="muted">' + esc(e.reason) + '</td><td>' + statusPill(e.outcome) + '</td></tr>'
+        ).join("") : '<tr><td colspan="6" class="muted">No automation events recorded yet.</td></tr>';
+
+        $("sessBody").innerHTML = sessList.length ? sessList.map(s =>
+          '<tr><td>' + esc(s.sessionKey) + '</td><td>' + esc(s.model) + '</td><td>' + s.turns + '</td><td>' + s.toolCalls + ' / ' + s.toolResults + '</td><td>' + (s.hasThoughtSig ? '<span class="pill pill-ok">preserved</span>' : '<span class="pill">n/a</span>') + '</td></tr>'
+        ).join("") : '<tr><td colspan="5" class="muted">No active coding-agent sessions observed yet.</td></tr>';
+
+        const stats = sys.latencyStats || [];
+        $("traceBody").innerHTML = stats.length ? stats.map(s => {
+          const label = s.key || ((s.provider || "") + (s.model ? "/" + s.model : "")) || "-";
+          return '<tr><td>' + esc(label) + '</td><td>' + s.count + '</td><td>' + s.errors + '</td><td>' + Math.round(s.p50Ms) + 'ms</td><td>' + Math.round(s.p95Ms) + 'ms</td></tr>';
+        }).join("") : '<tr><td colspan="5" class="muted">No latency spans recorded yet.</td></tr>';
+
+        const models = cat.models || [];
+        const aliases = cat.aliases || [];
+        const depAliasCount = aliases.filter(a => a.status === "deprecated").length;
+        $("aliasHealth").textContent = aliases.length + " synonyms (" + depAliasCount + " obsolete)";
+        $("catalogBody").innerHTML = models.length ? models.slice(0, 60).map(m => {
+          const q = typeof m.quotaRemaining === "number" ? (Math.round(m.quotaRemaining * 100) + "%") : "-";
+          const lim = (m.maxTokens ? Math.round(m.maxTokens/1000)+"k" : "-") + " / " + (m.maxOutputTokens ? Math.round(m.maxOutputTokens/1000)+"k" : "-");
+          const c = m.capabilities || {};
+          const tags = [c.Vision && "vision", c.PDF && "pdf", c.Tools && "tools", c.Reasoning && "think", c.ImageOutput && "img_gen", c.Search && "search"].filter(Boolean).map(t => '<span class="pill">' + t + '</span>').join("");
+          return '<tr><td>' + esc(m.id) + (m.recommended ? ' <span class="pill">rec</span>' : '') + '</td><td>' + statusPill(m.status) + '</td><td>' + q + '</td><td>' + lim + '</td><td>' + (tags || '<span class="muted">text</span>') + '</td></tr>';
+        }).join("") : '<tr><td colspan="5" class="muted">No models synced yet.</td></tr>';
 
         $("tgRtk").checked = !!sys.tokenSavers.rtk;
         $("tgCaveman").checked = !!sys.tokenSavers.caveman;
@@ -459,63 +458,13 @@
         $("lvPonytail").value = sys.tokenSavers.ponytailLevel || "full";
         $("tgGuard").checked = !!sys.tokenSavers.injectionGuard;
 
-        const connBody = $("connBody");
-        connBody.innerHTML = "";
-        const conns = sys.connections || [];
-        if (conns.length === 0) {
-          connBody.innerHTML = '<tr><td colspan="6" class="muted">No provider connections in SQLite yet.</td></tr>';
-        } else {
-          for (const c of conns) {
-            const tr = document.createElement("tr");
-            const lockBadge = c.activeLocks && c.activeLocks.length
-              ? c.activeLocks.map(l => '<span class="pill pill-red">' + l + '</span>').join(" ")
-              : '<span class="pill">clean</span>';
-            tr.innerHTML =
-              '<td>' + esc(c.provider) + (c.isActive ? '' : ' (off)') + '</td>' +
-              '<td>' + esc(c.name || c.id) + '</td>' +
-              '<td>' + esc(c.projectId || "-") + '</td>' +
-              '<td>' + String(c.backoffLevel || 0) + '</td>' +
-              '<td>' + lockBadge + '</td>' +
-              '<td><button class="btn" data-reset-provider="' + esc(c.provider) + '">Unlock</button></td>';
-            connBody.appendChild(tr);
-          }
-          connBody.querySelectorAll("[data-reset-provider]").forEach((btn) => {
-            btn.addEventListener("click", async () => {
-              await api("/api/gateway/health/reset", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ provider: btn.getAttribute("data-reset-provider") })
-              });
-              loadAll();
-            });
-          });
-        }
-
-        const traceBody = $("traceBody");
-        traceBody.innerHTML = "";
-        const stats = sys.latencyStats || [];
-        if (stats.length === 0) {
-          traceBody.innerHTML = '<tr><td colspan="5" class="muted">No latency spans recorded yet.</td></tr>';
-        } else {
-          for (const s of stats) {
-            const tr = document.createElement("tr");
-            const label = s.key || ((s.provider || "") + (s.model ? "/" + s.model : "")) || "-";
-            tr.innerHTML = '<td>' + esc(label) + '</td><td>' + s.count + '</td><td>' + s.errors + '</td><td>' + Math.round(s.p50Ms) + 'ms</td><td>' + Math.round(s.p95Ms) + 'ms</td>';
-            traceBody.appendChild(tr);
-          }
-        }
-
         const logsData = await api("/api/gateway/logs");
         const lines = logsData.logs || [];
         $("logBox").textContent = lines.length ? lines.join("\n") : "(no gateway logs captured yet)";
       } catch (err) {
-        sessionStorage.removeItem(KEY_STORAGE);
+        if (err.message === "HTTP 401") sessionStorage.removeItem(KEY_STORAGE);
         showAuth(err.message);
       }
-    }
-
-    function esc(s) {
-      return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
     }
 
     async function saveToggles() {
@@ -536,7 +485,10 @@
     ["tgRtk", "tgCaveman", "lvCaveman", "tgPonytail", "lvPonytail", "tgGuard"].forEach((id) => {
       $(id).addEventListener("change", () => saveToggles().catch((e) => alert(e.message)));
     });
-
+    $("syncBtn").addEventListener("click", async () => {
+      $("syncBtn").textContent = "Syncing...";
+      try { await api("/api/gateway/sync", { method: "POST" }); } finally { $("syncBtn").textContent = "Sync Now"; loadAll(); }
+    });
     $("resetAllBtn").addEventListener("click", async () => {
       await api("/api/gateway/health/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       loadAll();
@@ -552,15 +504,10 @@
         $("updateBanner").textContent = info.hasUpdate
           ? ("Update available: v" + info.latestVersion + " (current v" + info.currentVersion + ")")
           : ("Up to date: v" + info.currentVersion);
-      } catch (e) {
-        $("updateBanner").textContent = "Check failed: " + e.message;
-      }
+      } catch (e) { $("updateBanner").textContent = "Check failed: " + e.message; }
     });
     $("refreshBtn").addEventListener("click", loadAll);
-    $("logoutBtn").addEventListener("click", () => {
-      sessionStorage.removeItem(KEY_STORAGE);
-      showAuth("");
-    });
+    $("logoutBtn").addEventListener("click", () => { sessionStorage.removeItem(KEY_STORAGE); loadAll(); });
     $("authForm").addEventListener("submit", (e) => {
       e.preventDefault();
       sessionStorage.setItem(KEY_STORAGE, $("apiKeyInput").value.trim());

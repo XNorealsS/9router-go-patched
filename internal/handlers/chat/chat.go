@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
@@ -51,6 +52,9 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	h.applySessionAffinity(r, body, modelInfo)
+	h.recordAgentSessionTurn(r, body, modelInfo.Provider, modelInfo.ConnectionID, modelInfo.Model)
 
 	if len(modelInfo.ComboModels) > 0 {
 		if modelInfo.Strategy == "fusion" {
@@ -128,6 +132,9 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	h.applySessionAffinity(r, body, modelInfo)
+	h.recordAgentSessionTurn(r, body, modelInfo.Provider, modelInfo.ConnectionID, modelInfo.Model)
 
 	translateResponse := true
 	var workingBody map[string]any
@@ -286,10 +293,112 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		data = []modelObj{}
 	}
 
+	if h.Engine != nil {
+		seen := make(map[string]bool, len(data))
+		for _, d := range data {
+			seen[d.ID] = true
+		}
+		for _, m := range h.Engine.Catalog.VerifiedAntigravityModels() {
+			fullID := "antigravity/" + m.ID
+			if seen[fullID] {
+				continue
+			}
+			data = append(data, modelObj{
+				ID:                  fullID,
+				Object:              "model",
+				Created:             now,
+				OwnedBy:             "antigravity",
+				ContextLength:       m.MaxTokens,
+				MaxCompletionTokens: m.MaxOutputTokens,
+			})
+		}
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
 		"data":   data,
 	})
+}
+
+func deriveRequestSessionKey(r *http.Request, body []byte, provider string) (string, int, int, bool) {
+	var parsed struct {
+		System   any `json:"system"`
+		Messages []struct {
+			Role      string `json:"role"`
+			ToolCalls []any  `json:"tool_calls"`
+			Content   any    `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", 0, 0, false
+	}
+	var toolCalls, toolResults int
+	for _, m := range parsed.Messages {
+		toolCalls += len(m.ToolCalls)
+		if m.Role == "tool" {
+			toolResults++
+		}
+		if parts, ok := m.Content.([]any); ok {
+			for _, p := range parts {
+				if pm, ok := p.(map[string]any); ok {
+					switch pm["type"] {
+					case "tool_use":
+						toolCalls++
+					case "tool_result":
+						toolResults++
+					}
+				}
+			}
+		}
+	}
+	if toolCalls == 0 && toolResults == 0 && len(parsed.Messages) < 2 {
+		return "", 0, 0, false
+	}
+	seed := fmt.Sprintf("%v", parsed.System)
+	if len(seed) > 120 {
+		seed = seed[:120]
+	}
+	if seed == "" && len(parsed.Messages) > 0 {
+		b, _ := json.Marshal(parsed.Messages[0].Content)
+		if len(b) > 120 {
+			b = b[:120]
+		}
+		seed = string(b)
+	}
+	if xk := r.Header.Get("X-Session-Id"); xk != "" {
+		seed = xk
+	}
+	bodyStr := string(body)
+	hasThoughtSig := strings.Contains(bodyStr, "__ts__") || strings.Contains(bodyStr, "thoughtSignature") || strings.Contains(bodyStr, "thought_signature")
+	return autonomy.DeriveSessionKey(r.RemoteAddr, provider, seed), toolCalls, toolResults, hasThoughtSig
+}
+
+func (h *ChatHandler) applySessionAffinity(r *http.Request, body []byte, info *ModelInfo) {
+	if h.Engine == nil || h.Repo == nil || info == nil || info.ConnectionID != "" || len(info.ComboModels) > 0 {
+		return
+	}
+	if detectNewTurn(body) {
+		return
+	}
+	sessKey, _, _, _ := deriveRequestSessionKey(r, body, info.Provider)
+	prevConn := h.Engine.Recorder.GetSessionConnection(sessKey)
+	if prevConn == "" {
+		return
+	}
+	if locked, err := h.Repo.IsConnectionModelLocked(prevConn, info.Model); err == nil && !locked {
+		info.ConnectionID = prevConn
+	}
+}
+
+func (h *ChatHandler) recordAgentSessionTurn(r *http.Request, body []byte, provider, connID, model string) {
+	if h.Engine == nil {
+		return
+	}
+	sessKey, toolCalls, toolResults, hasThoughtSig := deriveRequestSessionKey(r, body, provider)
+	if sessKey == "" {
+		return
+	}
+	h.Engine.Recorder.TrackSession(sessKey, provider, connID, model, toolCalls, toolResults, hasThoughtSig, "active")
 }
 
 // HandleModelsInfo returns metadata for a specific model.

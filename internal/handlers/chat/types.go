@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"sync"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/shared"
 	"9router/proxy/internal/proxy"
@@ -23,6 +24,9 @@ type ChatHandler struct {
 	Repo           *db.Repo
 	Client         *http.Client
 	TokenSaver     *shared.TokenSaverConfig
+	DashboardURL   string
+	DataDir        string
+	Engine         *autonomy.Engine
 	stickyMu       sync.Mutex
 	stickyState    map[string]*comboStickyState
 	refreshLocksMu sync.Mutex

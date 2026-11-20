@@ -3,10 +3,12 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlers/chat"
@@ -25,14 +27,12 @@ func NewTokenSaverConfig(rtk, caveman, ponytail bool) *TokenSaverConfig {
 	return shared.NewTokenSaverConfig(rtk, caveman, ponytail)
 }
 
-// SetupRoutes mounts all domain handlers on the provided router.
-func SetupRoutes(r interface {
+func setupRoutesWithChat(r interface {
 	Get(pattern string, handlerFn http.HandlerFunc)
 	Post(pattern string, handlerFn http.HandlerFunc)
 	Delete(pattern string, handlerFn http.HandlerFunc)
 	HandleFunc(pattern string, handlerFn http.HandlerFunc)
-}, repo *db.Repo, ts *TokenSaverConfig) {
-	chatH := chat.NewChatHandler(repo, ts)
+}, repo *db.Repo, ts *TokenSaverConfig, chatH *chat.ChatHandler) {
 	mediaH := media.NewMediaHandler(repo, ts, chatH)
 	oauthH := oauth.NewOAuthHandler(repo)
 
@@ -150,18 +150,36 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 
 	r.Get("/gateway", HandlePanelPage)
 
+	chatH := chat.NewChatHandler(repo, ts)
+	dataDir := info.DataDir
+	if dataDir == "" && info.DatabasePath != "" {
+		dataDir = filepath.Dir(filepath.Dir(info.DatabasePath))
+	}
+	if info.Engine == nil {
+		info.Engine = chatH.Engine
+	}
+	if info.Engine == nil {
+		info.Engine = autonomy.NewEngine(repo, nil)
+	}
+	chatH.ConfigureGatewayBridge(info.DashboardURL, dataDir, info.Engine)
 	gwPanel := NewGatewayPanelHandler(repo, ts, info)
 
-	// API-key protected domain routes (includes /admin/health/reset and /api/gateway/*)
+	// Gateway monitoring endpoints — accept existing Next.js dashboard session cookie OR API key.
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.RequireApiKey(repo))
+		r.Use(middleware.RequireGatewayAuth(repo, dataDir))
 
 		r.Get("/api/gateway/system", gwPanel.HandleSystemStatus)
+		r.Post("/api/gateway/sync", gwPanel.HandleSyncNow)
 		r.Post("/api/gateway/toggles", gwPanel.HandleToggles)
 		r.Post("/api/gateway/health/reset", gwPanel.HandleHealthReset)
 		r.Post("/api/gateway/update-check", gwPanel.HandleUpdateCheck)
 		r.Get("/api/gateway/logs", gwPanel.HandleLogsGet)
 		r.Delete("/api/gateway/logs", gwPanel.HandleLogsDelete)
+	})
+
+	// API-key protected proxy & admin endpoints (preserves external API key workflow)
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.RequireApiKey(repo))
 
 		// Health reset endpoint — dashboard calls this via headroom proxy
 		r.Post("/admin/health/reset", func(w http.ResponseWriter, r *http.Request) {
@@ -175,6 +193,6 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		})
 
-		SetupRoutes(r, repo, ts)
+		setupRoutesWithChat(r, repo, ts, chatH)
 	})
 }

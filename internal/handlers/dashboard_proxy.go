@@ -36,9 +36,41 @@ stop[stop-color*="#f9" i],stop[stop-color*="#e5" i],stop[stop-color*="#fe" i],st
 #gw-console-link:hover{background:#dc2626;color:#ffffff}
 #gw-console-dot{width:7px;height:7px;border-radius:999px;background:#dc2626;display:inline-block}
 #gw-console-link:hover #gw-console-dot{background:#ffffff}
+#gw-sidebar-link{display:flex;align-items:center;gap:10px;padding:8px 12px;margin:6px 0 2px;border-radius:6px;border:1px solid rgba(220,38,38,.45);background:rgba(220,38,38,.10);color:inherit;font-size:13px;font-weight:600;text-decoration:none;transition:background-color .15s,border-color .15s}
+#gw-sidebar-link:hover{background:#dc2626;border-color:#dc2626;color:#ffffff}
+#gw-sidebar-link .gw-sb-dot{width:8px;height:8px;border-radius:999px;background:#dc2626;flex-shrink:0}
+#gw-sidebar-link:hover .gw-sb-dot{background:#ffffff}
 </style>`
 
-const gatewayNavWidget = `<a id="gw-console-link" href="/gateway" title="Open 1-Gateway System Console"><span id="gw-console-dot"></span><span>GATEWAY CONSOLE</span></a>`
+const gatewayNavWidget = `<a id="gw-console-link" href="/gateway" title="Open 1-Gateway Automation Console"><span id="gw-console-dot"></span><span>GATEWAY ENGINE</span></a>
+<script>(function(){
+  function mountSidebarLink(){
+    var providersLink = document.querySelector('a[href="/dashboard/providers"]');
+    if(!providersLink || !providersLink.parentElement) return false;
+    var existing = document.getElementById('gw-sidebar-link');
+    var fallback = document.getElementById('gw-console-link');
+    if(!existing){
+      var a = document.createElement('a');
+      a.id = 'gw-sidebar-link';
+      a.href = '/gateway';
+      a.innerHTML = '<span class="gw-sb-dot"></span><span>Gateway Engine</span>';
+      var list = providersLink.parentElement.closest('nav,ul,aside') || providersLink.parentElement;
+      if(providersLink.parentElement.tagName === 'LI' && providersLink.parentElement.parentElement){
+        var li = document.createElement('li');
+        li.appendChild(a);
+        providersLink.parentElement.parentElement.appendChild(li);
+      } else {
+        providersLink.parentElement.appendChild(a);
+      }
+    }
+    if(fallback) fallback.style.display = 'none';
+    return true;
+  }
+  if(!mountSidebarLink()){
+    var obs = new MutationObserver(function(){ mountSidebarLink(); });
+    obs.observe(document.documentElement, { childList: true, subtree: true });
+  }
+})();</script>`
 
 const maxProxiedHTMLBytes = 4 << 20 // 4 MiB safety cap for HTML theme injection
 

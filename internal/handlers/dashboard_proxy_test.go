@@ -51,8 +51,8 @@ func TestSetupServerRouterWithGateway_UnifiedGateway(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "9Router Dashboard") {
 		t.Fatalf("expected proxied /dashboard 200, got %d %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), `id="gw-red-theme"`) || !strings.Contains(rec.Body.String(), `href="/gateway"`) {
-		t.Fatalf("expected red theme override and /gateway nav link injected, got %s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), `id="gw-red-theme"`) || !strings.Contains(rec.Body.String(), `href="/gateway"`) || !strings.Contains(rec.Body.String(), `gw-sidebar-link`) {
+		t.Fatalf("expected red theme override, sidebar link script, and /gateway nav link injected, got %s", rec.Body.String())
 	}
 
 	// 3. Browser call to /api/version without API key goes to dashboard instead of 401.

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/constants"
 
 	"9router/proxy/internal/handlerutil"
@@ -95,7 +96,7 @@ func modelHasCapability(modelEntry string, cap string) bool {
 		provider = modelEntry[:idx]
 	}
 
-	caps := providers.GetCapabilitiesForModel(provider, modelEntry)
+	caps := autonomy.LookupCapabilities(provider, modelEntry)
 
 	switch cap {
 	case "vision":

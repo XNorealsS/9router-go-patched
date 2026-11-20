@@ -79,8 +79,8 @@ func TestGatewayPanel_AuthRedactionAndControls(t *testing.T) {
 	if strings.Contains(body, "sk-secret-must-not-leak") {
 		t.Fatalf("secret leaked in /api/gateway/system response: %s", body)
 	}
-	if !strings.Contains(body, "gemini-3-flash") || !strings.Contains(body, "proj-live") {
-		t.Fatalf("expected active model lock and projectId in response: %s", body)
+	if !strings.Contains(body, "gemini-3-flash") || !strings.Contains(body, "proj-live") || !strings.Contains(body, `"autonomy"`) {
+		t.Fatalf("expected active model lock, projectId, and autonomy state in response: %s", body)
 	}
 
 	// 4. POST /api/gateway/toggles updates runtime TokenSaverConfig.

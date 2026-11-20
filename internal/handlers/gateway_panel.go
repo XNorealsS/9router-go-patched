@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"9router/proxy/internal/autonomy"
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
@@ -28,6 +29,8 @@ type GatewayRuntimeInfo struct {
 	ListenAddr   string
 	DashboardURL string
 	DatabasePath string
+	DataDir      string
+	Engine       *autonomy.Engine
 }
 
 // GatewayPanelHandler serves the 1-gateway management UI shell and authenticated
@@ -128,6 +131,11 @@ func (h *GatewayPanelHandler) HandleSystemStatus(w http.ResponseWriter, r *http.
 		}
 	}
 
+	var autoSnap autonomy.SystemStatusSnapshot
+	if h.Runtime.Engine != nil {
+		autoSnap = h.Runtime.Engine.StatusSnapshot()
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"version":                     updater.CurrentVersion,
 		"goVersion":                   runtime.Version(),
@@ -144,6 +152,21 @@ func (h *GatewayPanelHandler) HandleSystemStatus(w http.ResponseWriter, r *http.
 		"connections":                 conns,
 		"inFlight":                    usagetracker.GetTracker().GetActiveState(h.Repo),
 		"latencyStats":                tracing.LatencyByKey(),
+		"autonomy":                    autoSnap,
+	})
+}
+
+// HandleSyncNow triggers an immediate Antigravity OAuth/project/catalog sync pass.
+// POST /api/gateway/sync
+func (h *GatewayPanelHandler) HandleSyncNow(w http.ResponseWriter, r *http.Request) {
+	if h.Runtime.Engine == nil {
+		handlerutil.WriteJSONError(w, http.StatusServiceUnavailable, "autonomy engine unavailable")
+		return
+	}
+	h.Runtime.Engine.SyncNow(r.Context(), "manual")
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"status":   "ok",
+		"autonomy": h.Runtime.Engine.StatusSnapshot(),
 	})
 }
 
