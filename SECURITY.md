@@ -22,7 +22,8 @@
    - Upstream OAuth error bodies are truncated to 200 bytes in error messages to prevent echoed token leakage.
 
 4. **SSRF & Open-Proxy Protections**
-   - **Headroom Proxy (`internal/handlers/media/headroom.go`)**: Non-loopback `headroomUrl` targets are validated with `handlerutil.AssertPublicURL` (blocking loopback, RFC 1918 private networks, and cloud metadata `169.254.169.254`).
+   - **Dial-Time SSRF Transport (`internal/handlerutil/ssrf.go`)**: `NewSSRFSafeTransport()` wraps `net.Dialer.Control` to reject loopback, RFC 1918 private, link-local (`169.254.0.0/16`), and unique-local IPv6 addresses on the resolved TCP peer address at socket connect time, eliminating DNS-rebinding TOCTOU gaps.
+   - **Headroom Proxy (`internal/handlers/media/headroom.go`)**: Non-loopback `headroomUrl` targets are validated with `handlerutil.AssertPublicURL` and dispatched via `NewSSRFSafeTransport()` (`SafeClient`), with responses capped at 10 MiB.
    - **Edge Relay Templates (`internal/handlers/media/deploy.go`)**: Deployed Vercel, Cloudflare Worker, and Deno relay scripts require a per-deployment random `x-relay-secret` header and reject non-HTTPS, localhost, RFC 1918, IPv6 ULA/link-local, and `169.254.x.x` targets.
    - **Egress Proxy Pools (`internal/handlers/chat/connections.go`)**: Supports `http`, `https`, `socks5`, and `socks5h`; enforces `strictProxy` fail-closed behavior; redacts proxy credentials from logs via `url.URL.Redacted()`.
    - **MITM Proxy (`internal/mitm/server.go`)**: Binds strictly to `127.0.0.1:443` and drops bodies exceeding 10 MiB.
@@ -32,9 +33,12 @@
    - All SQL queries use parameterized placeholders; `json_set` paths quote model names (`$."modelLock_<model>"`) to prevent JSON path injection.
    - **Note**: Upstream API keys and OAuth tokens in `providerConnections.data` are stored in plaintext JSON for compatibility with the shared 9Router Next.js SQLite schema. Protect host filesystem access accordingly.
 
+6. **Self-Updater Integrity & Secret Hygiene (`internal/updater/updater.go`, `internal/proxy/executor/qoder.go`)**
+   - `CheckUpdate` and `PerformSelfUpdateVerified` require `https://` + `AssertPublicURL` + `NewSSRFSafeTransport()` (overridable only via `ALLOW_INSECURE_UPDATE=true`), cap manifests at `1 MiB` and binaries at `128 MiB`, and refuse self-updates without SHA-256 checksum verification (`ALLOW_UNVERIFIED_UPDATE=true` to bypass).
+   - `qoder` PAT-to-jobToken cache keys are SHA-256 digests (`crypto/sha256`) rather than raw credentials in map keys.
+
 ## Known Security Limitations
 
-- **DNS Rebinding TOCTOU in `AssertPublicURL`**: `handlerutil.AssertPublicURL` resolves hostnames before `http.Client.Do` rather than inside a custom `net.Dialer.Control` hook.
 - **No Built-in Rate Limiter on Proxy Endpoints**: Operators exposing `9router-go` beyond localhost should enforce rate limiting at a reverse proxy (nginx/Caddy/Cloudflare).
 - **SQLite Cleartext Credentials**: Required for schema compatibility with the upstream 9Router dashboard.
 
