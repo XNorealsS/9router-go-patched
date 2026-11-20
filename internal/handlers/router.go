@@ -148,6 +148,7 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 		}
 	})
 
+	r.Get("/", HandleLandingPage)
 	r.Get("/gateway", HandlePanelPage)
 
 	chatH := chat.NewChatHandler(repo, ts)
@@ -163,6 +164,9 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 	}
 	chatH.ConfigureGatewayBridge(info.DashboardURL, dataDir, info.Engine)
 	gwPanel := NewGatewayPanelHandler(repo, ts, info)
+
+	// Public credential-free overview for the landing portal at /.
+	r.Get("/api/gateway/public-overview", gwPanel.HandlePublicOverview)
 
 	// Gateway monitoring endpoints — accept existing Next.js dashboard session cookie OR API key.
 	r.Group(func(r chi.Router) {

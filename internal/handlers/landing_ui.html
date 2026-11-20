@@ -1,0 +1,1151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>9Router Gateway | Unified AI Proxy &amp; Provider Routing</title>
+  <style>
+    :root {
+      --bg: #09090d;
+      --surface: #111117;
+      --surface-2: #171720;
+      --border: #252532;
+      --border-strong: #37374a;
+      --text: #f8fafc;
+      --muted: #a1a1aa;
+      --accent: #dc2626;
+      --accent-hover: #b91c1c;
+      --accent-tint: rgba(220, 38, 38, 0.14);
+      --ok: #22c55e;
+      --ok-tint: rgba(34, 197, 94, 0.12);
+      --warn: #eab308;
+      --warn-tint: rgba(234, 179, 8, 0.12);
+      --sans: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --r-lg: 8px;
+      --r-md: 6px;
+      --r-sm: 4px;
+    }
+    [data-theme="light"] {
+      --bg: #fafafa;
+      --surface: #ffffff;
+      --surface-2: #f4f4f5;
+      --border: #e4e4e7;
+      --border-strong: #d4d4d8;
+      --text: #09090b;
+      --muted: #52525b;
+      --accent: #b91c1c;
+      --accent-hover: #991b1b;
+      --accent-tint: rgba(185, 28, 28, 0.08);
+      --ok: #15803d;
+      --ok-tint: rgba(21, 128, 61, 0.09);
+      --warn: #a16207;
+      --warn-tint: rgba(161, 98, 7, 0.09);
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+    a { color: inherit; }
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* Sticky Top Navigation (R-24: every item points to a live route or anchor) */
+    .nav-wrap {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 15px;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+    }
+    .brand-mark {
+      width: 26px;
+      height: 26px;
+      border-radius: var(--r-sm);
+      background: var(--accent);
+      color: #ffffff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font: 700 11px/1 var(--mono);
+      letter-spacing: -0.03em;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-link {
+      padding: 8px 12px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 13.5px;
+      font-weight: 500;
+      border-radius: var(--r-md);
+      transition: color 0.15s ease, background-color 0.15s ease;
+    }
+    .nav-link:hover {
+      color: var(--text);
+      background: var(--surface-2);
+    }
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 0 14px;
+      min-height: 44px;
+      border-radius: var(--r-md);
+      font: 600 13px/1.2 var(--sans);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      white-space: nowrap;
+      transition: border-color 0.15s ease, background-color 0.15s ease;
+    }
+    .btn:hover { border-color: var(--border-strong); }
+    .btn-sm { min-height: 36px; padding: 0 10px; font-size: 12px; }
+    .btn-accent {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+    .btn-accent:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+    }
+    .menu-btn {
+      display: none;
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 10px;
+    }
+    .mobile-drawer {
+      display: none;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 12px 24px 20px;
+    }
+    .mobile-drawer.open { display: flex; flex-direction: column; gap: 6px; }
+    .mobile-drawer .nav-link, .mobile-drawer .btn { width: 100%; justify-content: flex-start; }
+    @media (max-width: 920px) {
+      .nav-links, .nav-actions .desktop-only { display: none; }
+      .menu-btn { display: inline-flex; }
+    }
+
+    /* Main Layout Rhythm */
+    .container { max-width: 1240px; margin: 0 auto; padding: 0 24px; }
+    .hero {
+      padding: 68px 0 60px;
+      border-bottom: 1px solid var(--border);
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: 48px;
+      align-items: start;
+    }
+    @media (max-width: 960px) {
+      .hero { padding: 40px 0 44px; }
+      .hero-grid { grid-template-columns: 1fr; gap: 32px; }
+    }
+    .kicker {
+      margin: 0 0 14px;
+      font: 600 13px/1.3 var(--sans);
+      color: var(--accent);
+      letter-spacing: 0.02em;
+    }
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(2.35rem, 4.4vw, 3.65rem);
+      font-weight: 700;
+      line-height: 1.08;
+      letter-spacing: -0.03em;
+    }
+    .hero-sub {
+      margin: 0 0 26px;
+      font-size: 16.5px;
+      line-height: 1.6;
+      color: var(--muted);
+      max-width: 540px;
+    }
+    .hero-cta-row {
+      display: flex;
+      align-items: stretch;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 36px;
+    }
+    .endpoint-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 4px 6px 4px 12px;
+      min-height: 44px;
+      max-width: 100%;
+    }
+    .endpoint-box code {
+      font: 500 13px/1.2 var(--mono);
+      color: var(--text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .kpi-strip {
+      display: flex;
+      gap: 32px;
+      flex-wrap: wrap;
+      padding-top: 22px;
+      border-top: 1px solid var(--border);
+    }
+    .kpi-label {
+      font: 600 11.5px/1.2 var(--mono);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .kpi-val {
+      margin-top: 6px;
+      font: 700 22px/1.15 var(--sans);
+      font-variant-numeric: tabular-nums;
+      color: var(--text);
+    }
+    .kpi-note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    /* Functional Gateway Inspector Card (Right Hero) */
+    .inspector {
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+    }
+    .insp-tabs {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+      padding: 0 12px;
+      gap: 8px;
+      overflow-x: auto;
+    }
+    .tab-group { display: flex; gap: 4px; }
+    .tab-btn {
+      appearance: none;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      padding: 12px 12px 10px;
+      min-height: 44px;
+      font: 600 13px/1.2 var(--sans);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn[aria-selected="true"] {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+    .insp-body { padding: 18px; }
+    .insp-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .route-sig {
+      font: 600 12.5px/1.3 var(--mono);
+      color: var(--muted);
+    }
+    .route-sig strong { color: var(--text); }
+    select, input[type="search"] {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 0 10px;
+      min-height: 36px;
+      font: 500 12.5px/1.2 var(--mono);
+    }
+    pre.code-block {
+      margin: 0;
+      padding: 14px 16px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      font: 12.5px/1.55 var(--mono);
+      color: var(--text);
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .chain-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .chain-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      font: 500 12.5px/1.3 var(--mono);
+    }
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 7px;
+      border-radius: var(--r-sm);
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--muted);
+      font: 600 11px/1.3 var(--mono);
+      white-space: nowrap;
+    }
+    .tag-ok { border-color: var(--ok); background: var(--ok-tint); color: var(--ok); }
+    .tag-warn { border-color: var(--warn); background: var(--warn-tint); color: var(--warn); }
+    .tag-accent { border-color: var(--accent); background: var(--accent-tint); color: var(--accent); }
+
+    /* Section 2: Connected 4-Stage Pipeline Strip (distinct from hero & cards) */
+    .pipeline-sec {
+      padding: 56px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .sec-head-inline {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 24px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+    .sec-head-inline h2 {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .sec-head-inline p {
+      margin: 0;
+      color: var(--muted);
+      max-width: 520px;
+      font-size: 14.5px;
+    }
+    .pipeline-strip {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    @media (max-width: 900px) { .pipeline-strip { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 540px) { .pipeline-strip { grid-template-columns: 1fr; } }
+    .pipe-step {
+      padding: 20px;
+      border-right: 1px solid var(--border);
+    }
+    .pipe-step:last-child { border-right: none; }
+    @media (max-width: 900px) {
+      .pipe-step { border-bottom: 1px solid var(--border); }
+    }
+    .pipe-num {
+      font: 700 12px/1 var(--mono);
+      color: var(--accent);
+      margin-bottom: 10px;
+      display: block;
+    }
+    .pipe-step h3 {
+      margin: 0 0 6px;
+      font-size: 15.5px;
+      font-weight: 600;
+    }
+    .pipe-step p {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* Section 3: Searchable Live Model Matrix */
+    .catalog-sec {
+      padding: 68px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .chip-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .chip {
+      appearance: none;
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 0 12px;
+      min-height: 36px;
+      font: 600 12.5px/1 var(--sans);
+      cursor: pointer;
+    }
+    .chip:hover { color: var(--text); border-color: var(--border-strong); }
+    .chip[aria-pressed="true"] {
+      background: var(--accent-tint);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    .search-input {
+      min-width: 240px;
+      flex: 0 1 300px;
+      min-height: 40px !important;
+      padding: 0 12px !important;
+      font-family: var(--sans) !important;
+      font-size: 13.5px !important;
+    }
+    .table-frame {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-lg);
+      overflow: hidden;
+    }
+    .table-scroll {
+      overflow-x: auto;
+      max-height: 460px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+    th, td {
+      text-align: left;
+      padding: 11px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    th {
+      background: var(--surface-2);
+      color: var(--muted);
+      font: 600 11.5px/1.2 var(--mono);
+      text-transform: uppercase;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    tbody tr:last-child td { border-bottom: none; }
+    .mono-cell { font-family: var(--mono); font-size: 12.5px; }
+    .state-box {
+      padding: 28px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* Section 4: Asymmetric Quota & CLI Quick-Connect Workbench */
+    .workbench-sec {
+      padding: 68px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .workbench-grid {
+      display: grid;
+      grid-template-columns: 0.95fr 1.05fr;
+      gap: 32px;
+      align-items: start;
+    }
+    @media (max-width: 960px) { .workbench-grid { grid-template-columns: 1fr; } }
+    .box-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .box-head h2 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
+    .muted { color: var(--muted); font-size: 13.5px; }
+
+    /* Footer (2 concise groups, real links only) */
+    footer {
+      padding: 28px 0 40px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .foot-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .foot-links {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      flex-wrap: wrap;
+    }
+    .foot-links a { text-decoration: none; }
+    .foot-links a:hover { color: var(--text); text-decoration: underline; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+  <header class="nav-wrap">
+    <nav class="nav" aria-label="Primary Navigation">
+      <a class="brand" href="#top">
+        <span class="brand-mark">9R</span>
+        <span id="brandText">9Router Gateway</span>
+      </a>
+
+      <div class="nav-links">
+        <a class="nav-link" href="#top">Home</a>
+        <a class="nav-link" href="#routing">Routing</a>
+        <a class="nav-link" href="#models">Models</a>
+        <a class="nav-link" href="#limits">Quotas &amp; Limits</a>
+        <a class="nav-link" href="#integrations">CLI Setup</a>
+      </div>
+
+      <div class="nav-actions">
+        <button class="btn btn-sm" id="themeBtn" type="button" aria-label="Toggle color theme">Theme: Dark</button>
+        <a class="btn btn-sm desktop-only" href="/gateway">Console</a>
+        <a class="btn btn-sm btn-accent desktop-only" href="/dashboard">Dashboard</a>
+        <button class="btn menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="mobileDrawer" aria-label="Toggle navigation menu">Menu</button>
+      </div>
+    </nav>
+    <div id="mobileDrawer" class="mobile-drawer" aria-hidden="true">
+      <a class="nav-link" href="#top">Home</a>
+      <a class="nav-link" href="#routing">Routing</a>
+      <a class="nav-link" href="#models">Models</a>
+      <a class="nav-link" href="#limits">Quotas &amp; Limits</a>
+      <a class="nav-link" href="#integrations">CLI Setup</a>
+      <a class="btn" href="/gateway">Open Console (/gateway)</a>
+      <a class="btn btn-accent" href="/dashboard">Open Dashboard (/dashboard)</a>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div>
+          <p class="kicker">OpenAI, Anthropic, and Ollama Compatible 1-Gateway</p>
+          <h1>One endpoint, every active model.</h1>
+          <p class="hero-sub">
+            Route Claude, Gemini, DeepSeek Web, Kilo Free, and uncensored OpenRouter/Venice pools through one gateway port. Proactive OAuth refresh, DeepSeek PoW solving, turn-atomic context budgeting, and automatic failover run inside Go.
+          </p>
+
+          <div class="hero-cta-row">
+            <a class="btn btn-accent" href="/dashboard/providers">Connect Providers</a>
+            <a class="btn" href="/gateway">Open Console</a>
+            <div class="endpoint-box">
+              <code id="heroBaseUrl">http://127.0.0.1:20128/v1</code>
+              <button class="btn btn-sm" id="copyBaseBtn" type="button">Copy URL</button>
+            </div>
+          </div>
+
+          <div class="kpi-strip" aria-live="polite">
+            <div>
+              <div class="kpi-label">Active Models</div>
+              <div class="kpi-val" id="kpiModels">Loading...</div>
+              <div class="kpi-note" id="kpiModelsNote">Syncing gateway catalog</div>
+            </div>
+            <div>
+              <div class="kpi-label">Active Channels</div>
+              <div class="kpi-val" id="kpiProviders">-</div>
+              <div class="kpi-note" id="kpiAutoNote">Autonomy status</div>
+            </div>
+            <div>
+              <div class="kpi-label">Traffic (24h)</div>
+              <div class="kpi-val" id="kpiUsage">-</div>
+              <div class="kpi-note" id="kpiTokens">SQLite WAL telemetry</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="inspector" aria-label="Live Gateway Inspector">
+          <div class="insp-tabs">
+            <div class="tab-group" role="tablist" aria-label="Inspector Views">
+              <button class="tab-btn" role="tab" aria-selected="true" aria-controls="panel-request" id="tab-request" data-tab="request">Request</button>
+              <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-failover" id="tab-failover" data-tab="failover">Failover</button>
+              <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-usage" id="tab-usage" data-tab="usage">Usage</button>
+              <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-quotas" id="tab-quotas" data-tab="quotas">Quotas</button>
+            </div>
+            <span class="tag" id="verTag">checking...</span>
+          </div>
+
+          <div class="insp-body">
+            <div id="panel-request" role="tabpanel" aria-labelledby="tab-request">
+              <div class="insp-toolbar">
+                <span class="route-sig"><strong>POST</strong> /v1/chat/completions</span>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <select id="inspModelSel" aria-label="Sample request model">
+                    <option value="auto">auto</option>
+                    <option value="deepseek-chat">deepseek-chat</option>
+                    <option value="deepseek-uncensored">deepseek-uncensored</option>
+                    <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                    <option value="gemini-3-flash">gemini-3-flash</option>
+                  </select>
+                  <button class="btn btn-sm" id="copyCurlBtn" type="button">Copy cURL</button>
+                </div>
+              </div>
+              <pre class="code-block" id="inspCode">Loading endpoint...</pre>
+            </div>
+
+            <div id="panel-failover" role="tabpanel" aria-labelledby="tab-failover" class="hidden">
+              <div class="insp-toolbar">
+                <span class="route-sig">Live priority order for <strong id="failoverPoolName">auto</strong></span>
+                <select id="failoverPoolSel" aria-label="Select unified pool">
+                  <option value="auto">auto</option>
+                  <option value="auto-reasoning">auto-reasoning</option>
+                  <option value="deepseek-chat">deepseek-chat</option>
+                  <option value="deepseek-uncensored">deepseek-uncensored</option>
+                  <option value="claude-sonnet-4-6">claude-sonnet-4-6</option>
+                </select>
+              </div>
+              <div class="chain-list" id="failoverList">
+                <div class="state-box">Loading active failover chain...</div>
+              </div>
+            </div>
+
+            <div id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" class="hidden">
+              <div class="insp-toolbar">
+                <span class="route-sig">Sanitized gateway traffic totals</span>
+                <a class="btn btn-sm" href="/gateway">Full Telemetry</a>
+              </div>
+              <div class="chain-list" id="inspUsageList">
+                <div class="state-box">Loading usage summary...</div>
+              </div>
+            </div>
+
+            <div id="panel-quotas" role="tabpanel" aria-labelledby="tab-quotas" class="hidden">
+              <div class="insp-toolbar">
+                <span class="route-sig">Active provider limit policies</span>
+                <a class="btn btn-sm" href="/dashboard/providers">Manage Keys</a>
+              </div>
+              <div class="chain-list" id="inspQuotaList">
+                <div class="state-box">Loading provider quota policies...</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="pipeline-sec" id="routing">
+      <div class="container">
+        <div class="sec-head-inline">
+          <h2>How 1-Gateway routing executes</h2>
+          <p>Every request traverses four deterministic stages in Go before reaching an upstream provider.</p>
+        </div>
+        <div class="pipeline-strip">
+          <div class="pipe-step">
+            <span class="pipe-num">01 / INGRESS</span>
+            <h3>Single Port Compatibility</h3>
+            <p>Accepts <code>/v1/chat/completions</code>, <code>/v1/messages</code>, <code>/v1/responses</code>, and <code>/api/chat</code> behind port <code>:20128</code> while proxying management UI routes to Next.js.</p>
+          </div>
+          <div class="pipe-step">
+            <span class="pipe-num">02 / UNIFICATION</span>
+            <h3>Pool &amp; Window Budgeting</h3>
+            <p>Resolves bare names (<code>auto</code>, <code>deepseek-chat</code>, <code>deepseek-uncensored</code>), strips cross-provider <code>thoughtSignature</code> tags, and trims oversized tool histories atomically.</p>
+          </div>
+          <div class="pipe-step">
+            <span class="pipe-num">03 / EXECUTION</span>
+            <h3>OAuth Refresh &amp; Keccak PoW</h3>
+            <p>Renews Antigravity OAuth tokens proactively, solves DeepSeek Web <code>DeepSeekHashV1</code> PoW locally, and routes <code>kilo-gateway</code> <code>:free</code> models with zero auth overhead.</p>
+          </div>
+          <div class="pipe-step">
+            <span class="pipe-num">04 / RECOVERY</span>
+            <h3>Cooldown &amp; SQLite Telemetry</h3>
+            <p>Locks rate-limited models temporarily on <code>429/5xx</code>, falls back to the next healthy channel, and records token usage inside WAL-mode transactions.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="catalog-sec" id="models">
+      <div class="container">
+        <div class="sec-head-inline">
+          <h2>Live Model Catalog</h2>
+          <p>Real models synchronized from Antigravity, Kilo Free, DeepSeek Web, and active unified pools.</p>
+        </div>
+
+        <div class="filter-bar">
+          <div class="chip-row" id="providerChips" role="group" aria-label="Filter models by provider">
+            <button class="chip" type="button" data-filter="all" aria-pressed="true">All</button>
+            <button class="chip" type="button" data-filter="9router-unified" aria-pressed="false">Unified</button>
+            <button class="chip" type="button" data-filter="antigravity" aria-pressed="false">Antigravity</button>
+            <button class="chip" type="button" data-filter="deepseek-web" aria-pressed="false">DeepSeek Web</button>
+            <button class="chip" type="button" data-filter="kilo-gateway" aria-pressed="false">Kilo Free</button>
+            <button class="chip" type="button" data-cap="tools" aria-pressed="false">Tools</button>
+            <button class="chip" type="button" data-cap="vision" aria-pressed="false">Vision</button>
+            <button class="chip" type="button" data-cap="reasoning" aria-pressed="false">Reasoning</button>
+          </div>
+          <input id="modelSearch" class="search-input" type="search" placeholder="Filter model ID (e.g. deepseek, gemini, auto)" aria-label="Search model ID" />
+        </div>
+
+        <div class="table-frame">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Model ID</th>
+                  <th>Provider</th>
+                  <th>Tier / Quota</th>
+                  <th>Context</th>
+                  <th>Max Out</th>
+                  <th>Capabilities</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="modelTableBody">
+                <tr><td colspan="7" class="state-box">Loading live model catalog from gateway...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="workbench-sec">
+      <div class="container workbench-grid">
+        <div id="limits">
+          <div class="box-head">
+            <h2>Active Provider Quotas &amp; Policies</h2>
+            <a class="btn btn-sm" href="/gateway">Live Monitor</a>
+          </div>
+          <p class="muted" style="margin:0 0 16px;">Each backend governs rate limits differently. Connect API keys once in Dashboard to unlock extra channels.</p>
+          <div class="table-frame">
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Provider</th><th>Auth</th><th>Models</th><th>Limit Policy</th></tr>
+                </thead>
+                <tbody id="quotaTableBody">
+                  <tr><td colspan="4" class="state-box">Loading active providers...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="integrations">
+          <div class="box-head">
+            <h2>CLI &amp; Agent Quick Connect</h2>
+            <a class="btn btn-sm btn-accent" href="/gateway">1-Click Apply in Console</a>
+          </div>
+          <p class="muted" style="margin:0 0 16px;">Point any OpenAI or Anthropic compatible coding tool to this endpoint. Replace <code>&lt;YOUR_9ROUTER_API_KEY&gt;</code> or apply automatically from Console.</p>
+          <div class="inspector">
+            <div class="insp-tabs">
+              <div class="tab-group" role="tablist" aria-label="CLI Tool Snippets">
+                <button class="tab-btn cli-tab" role="tab" aria-selected="true" data-cli="hermes">Hermes Agent</button>
+                <button class="tab-btn cli-tab" role="tab" aria-selected="false" data-cli="claude">Claude Code</button>
+                <button class="tab-btn cli-tab" role="tab" aria-selected="false" data-cli="opencode">OpenCode</button>
+                <button class="tab-btn cli-tab" role="tab" aria-selected="false" data-cli="codex">Codex CLI</button>
+                <button class="tab-btn cli-tab" role="tab" aria-selected="false" data-cli="python">Python SDK</button>
+              </div>
+              <button class="btn btn-sm" id="copyCliBtn" type="button">Copy Snippet</button>
+            </div>
+            <div class="insp-body">
+              <pre class="code-block" id="cliSnippetBox">Loading CLI snippet...</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container foot-row">
+      <div>
+        <strong id="footBrand">9Router Gateway</strong>
+        <span id="footMeta" style="margin-left:8px;">Unified 1-Gateway Runtime</span>
+      </div>
+      <div class="foot-links">
+        <a href="/gateway">Gateway Console</a>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/dashboard/providers">Providers</a>
+        <a href="/health">Health JSON</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const THEME_KEY = "9r_portal_theme";
+      const $ = (id) => document.getElementById(id);
+      let state = { data: null, filterProv: "all", caps: new Set(), search: "", activeCli: "hermes" };
+
+      function applyTheme(t) {
+        document.documentElement.setAttribute("data-theme", t);
+        $("themeBtn").textContent = t === "light" ? "Theme: Light" : "Theme: Dark";
+        try { localStorage.setItem(THEME_KEY, t); } catch (_) {}
+      }
+      const savedTheme = (() => { try { return localStorage.getItem(THEME_KEY); } catch (_) { return null; } })();
+      applyTheme(savedTheme === "light" ? "light" : "dark");
+      $("themeBtn").addEventListener("click", () => {
+        applyTheme(document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light");
+      });
+
+      function setMenuOpen(open) {
+        const d = $("mobileDrawer");
+        const b = $("menuBtn");
+        d.classList.toggle("open", open);
+        d.setAttribute("aria-hidden", open ? "false" : "true");
+        b.setAttribute("aria-expanded", open ? "true" : "false");
+      }
+      $("menuBtn").addEventListener("click", () => setMenuOpen(!$("mobileDrawer").classList.contains("open")));
+      $("mobileDrawer").querySelectorAll("a").forEach((a) => a.addEventListener("click", () => setMenuOpen(false)));
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") setMenuOpen(false);
+      });
+
+      function esc(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+      }
+
+      function copyWithFeedback(btn, text) {
+        if (!navigator.clipboard) return;
+        navigator.clipboard.writeText(text).then(() => {
+          const prev = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = prev; }, 1600);
+        }).catch(() => {});
+      }
+
+      function endpointV1() {
+        return (state.data && state.data.endpointV1) || (window.location.origin + "/v1");
+      }
+      function endpointRoot() {
+        return (state.data && state.data.endpointRoot) || window.location.origin;
+      }
+
+      function renderInspectorRequest() {
+        const model = $("inspModelSel").value || "auto";
+        const snippet = [
+          "curl " + endpointV1() + "/chat/completions \\",
+          '  -H "Authorization: Bearer <YOUR_9ROUTER_API_KEY>" \\',
+          '  -H "Content-Type: application/json" \\',
+          "  -d '{",
+          '    "model": "' + model + '",',
+          '    "messages": [{"role": "user", "content": "Hello from 9Router"}]',
+          "  }'"
+        ].join("\n");
+        $("inspCode").textContent = snippet;
+      }
+
+      function renderFailoverList() {
+        const pool = $("failoverPoolSel").value || "auto";
+        $("failoverPoolName").textContent = pool;
+        const pools = (state.data && state.data.unifiedPools) || {};
+        const targets = pools[pool] || [];
+        if (!state.data) {
+          $("failoverList").innerHTML = '<div class="state-box">Loading pool order...</div>';
+          return;
+        }
+        if (targets.length === 0) {
+          $("failoverList").innerHTML = '<div class="state-box">Pool <code>' + esc(pool) + '</code> is inactive right now. Add the required provider connection in <a href="/dashboard/providers" style="text-decoration:underline;">Dashboard -&gt; Providers</a>.</div>';
+          return;
+        }
+        $("failoverList").innerHTML = targets.map((t, idx) =>
+          '<div class="chain-row"><span>#' + (idx + 1) + ' &nbsp;' + esc(t) + '</span><span class="tag ' + (idx === 0 ? "tag-accent" : "tag-ok") + '">' + (idx === 0 ? "primary" : "fallback") + '</span></div>'
+        ).join("");
+      }
+
+      function renderInspUsage() {
+        const st = (state.data && state.data.stats) || null;
+        if (!st) return;
+        $("inspUsageList").innerHTML = [
+          { k: "24h Requests", v: Number(st.requests24h || 0).toLocaleString() },
+          { k: "24h Total Tokens", v: Number(st.tokens24h || 0).toLocaleString() },
+          { k: "All-Time Requests", v: Number(st.totalRequests || 0).toLocaleString() },
+          { k: "All-Time Total Tokens", v: Number(st.totalTokens || 0).toLocaleString() }
+        ].map((r) => '<div class="chain-row"><span>' + esc(r.k) + '</span><strong>' + esc(r.v) + '</strong></div>').join("");
+      }
+
+      function renderQuotaViews() {
+        const provs = (state.data && state.data.providers) || [];
+        if (!state.data) return;
+        if (provs.length === 0) {
+          const emptyMsg = '<div class="state-box">No providers connected yet. Add Antigravity OAuth, DeepSeek cookies, or OpenRouter in Dashboard.</div>';
+          $("inspQuotaList").innerHTML = emptyMsg;
+          $("quotaTableBody").innerHTML = '<tr><td colspan="4" class="state-box">No active providers yet. Open <a href="/dashboard/providers" style="text-decoration:underline;">Providers</a> to connect an account.</td></tr>';
+          return;
+        }
+        $("inspQuotaList").innerHTML = provs.slice(0, 5).map((p) => {
+          const badge = typeof p.quotaRemainingPct === "number"
+            ? '<span class="tag tag-ok">' + p.quotaRemainingPct + '% quota</span>'
+            : '<span class="tag">' + esc(p.authType || "api") + '</span>';
+          return '<div class="chain-row"><span><strong>' + esc(p.provider) + '</strong> (' + p.modelCount + ' models)</span>' + badge + '</div>';
+        }).join("");
+
+        $("quotaTableBody").innerHTML = provs.map((p) => {
+          const pct = typeof p.quotaRemainingPct === "number" ? ('<div style="margin-top:4px;"><span class="tag tag-ok">' + p.quotaRemainingPct + '% remaining</span></div>') : "";
+          return '<tr><td class="mono-cell"><strong>' + esc(p.provider) + '</strong></td>'
+            + '<td><span class="tag">' + esc(p.authType || "api") + '</span></td>'
+            + '<td class="mono-cell">' + p.modelCount + '</td>'
+            + '<td class="muted">' + esc(p.limitPolicy) + pct + '</td></tr>';
+        }).join("");
+      }
+
+      function renderModelTable() {
+        const body = $("modelTableBody");
+        if (!state.data) return;
+        const all = state.data.models || [];
+        if (all.length === 0) {
+          body.innerHTML = '<tr><td colspan="7" class="state-box">No verified models active yet. Connect a provider in <a href="/dashboard/providers" style="text-decoration:underline;">Dashboard</a>.</td></tr>';
+          return;
+        }
+        const q = state.search.trim().toLowerCase();
+        const filtered = all.filter((m) => {
+          if (state.filterProv !== "all" && m.provider !== state.filterProv) return false;
+          for (const c of state.caps) {
+            if (c === "tools" && !(m.capabilities && m.capabilities.Tools)) return false;
+            if (c === "vision" && !(m.capabilities && m.capabilities.Vision)) return false;
+            if (c === "reasoning" && !(m.capabilities && m.capabilities.Reasoning)) return false;
+          }
+          if (q && !m.id.toLowerCase().includes(q) && !m.provider.toLowerCase().includes(q)) return false;
+          return true;
+        });
+        if (filtered.length === 0) {
+          body.innerHTML = '<tr><td colspan="7" class="state-box">No models match "' + esc(state.search || state.filterProv) + '". <button class="btn btn-sm" id="clearFiltersBtn" type="button" style="margin-left:8px;">Reset Filters</button></td></tr>';
+          const clr = document.getElementById("clearFiltersBtn");
+          if (clr) clr.addEventListener("click", resetFilters);
+          return;
+        }
+        body.innerHTML = filtered.slice(0, 60).map((m) => {
+          let tierBadge = '<span class="tag">' + esc(m.tier || "active") + '</span>';
+          if (typeof m.quotaRemainingPct === "number") {
+            tierBadge = '<span class="tag tag-ok">' + m.quotaRemainingPct + '% quota</span>';
+          } else if (m.tier === "free") {
+            tierBadge = '<span class="tag tag-ok">$0 free</span>';
+          } else if (m.tier === "uncensored") {
+            tierBadge = '<span class="tag tag-accent">uncensored</span>';
+          }
+          const c = m.capabilities || {};
+          const capTags = [c.Tools && "tools", c.Vision && "vision", c.Reasoning && "think", c.PDF && "pdf"].filter(Boolean).map((t) => '<span class="tag">' + t + '</span>').join(" ") || '<span class="muted">text</span>';
+          const ctx = m.contextLength ? Math.round(m.contextLength / 1000) + "k" : "-";
+          const out = m.maxOutput ? Math.round(m.maxOutput / 1000) + "k" : "-";
+          return '<tr>'
+            + '<td class="mono-cell"><strong>' + esc(m.id) + '</strong></td>'
+            + '<td class="mono-cell">' + esc(m.provider) + '</td>'
+            + '<td>' + tierBadge + '</td>'
+            + '<td class="mono-cell">' + ctx + '</td>'
+            + '<td class="mono-cell">' + out + '</td>'
+            + '<td>' + capTags + '</td>'
+            + '<td><button class="btn btn-sm use-model-btn" type="button" data-mid="' + esc(m.id) + '">Use ID</button></td>'
+            + '</tr>';
+        }).join("");
+        body.querySelectorAll(".use-model-btn").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.getAttribute("data-mid");
+            const sel = $("inspModelSel");
+            if (![...sel.options].some((o) => o.value === id)) {
+              const opt = document.createElement("option");
+              opt.value = id;
+              opt.textContent = id;
+              sel.appendChild(opt);
+            }
+            sel.value = id;
+            renderInspectorRequest();
+            copyWithFeedback(btn, id);
+          });
+        });
+      }
+
+      function resetFilters() {
+        state.filterProv = "all";
+        state.caps.clear();
+        state.search = "";
+        $("modelSearch").value = "";
+        document.querySelectorAll("#providerChips .chip").forEach((c) => {
+          if (c.dataset.filter) c.setAttribute("aria-pressed", c.dataset.filter === "all" ? "true" : "false");
+          if (c.dataset.cap) c.setAttribute("aria-pressed", "false");
+        });
+        renderModelTable();
+      }
+
+      function renderCliSnippet() {
+        const v1 = endpointV1();
+        const root = endpointRoot();
+        const snippets = {
+          hermes: "# ~/.hermes/config.yaml (Linux/macOS) or %LOCALAPPDATA%\\hermes\\config.yaml (Windows)\nmodel:\n  default: \"auto\"\n  provider: \"custom\"\n  base_url: \"" + v1 + "\"\n# ~/.hermes/.env -> OPENAI_API_KEY=<YOUR_9ROUTER_API_KEY>",
+          claude: "# ~/.claude/settings.json (or export in shell)\nexport ANTHROPIC_BASE_URL=\"" + root + "\"\nexport ANTHROPIC_AUTH_TOKEN=\"<YOUR_9ROUTER_API_KEY>\"\nexport ANTHROPIC_MODEL=\"claude-sonnet-4-6\"\nclaude",
+          opencode: "{\n  \"provider\": {\n    \"9router\": {\n      \"npm\": \"@ai-sdk/openai-compatible\",\n      \"options\": { \"baseURL\": \"" + v1 + "\", \"apiKey\": \"<YOUR_9ROUTER_API_KEY>\" }\n    }\n  },\n  \"model\": \"9router/auto\"\n}",
+          codex: "model = \"auto\"\nmodel_provider = \"9router\"\n\n[model_providers.9router]\nname = \"9Router 1-Gateway\"\nbase_url = \"" + v1 + "\"\nwire_api = \"chat\"",
+          python: "from openai import OpenAI\n\nclient = OpenAI(\n    base_url=\"" + v1 + "\",\n    api_key=\"<YOUR_9ROUTER_API_KEY>\",\n)\nresp = client.chat.completions.create(\n    model=\"auto\",\n    messages=[{\"role\": \"user\", \"content\": \"Hello 9Router\"}],\n)\nprint(resp.choices[0].message.content)"
+        };
+        $("cliSnippetBox").textContent = snippets[state.activeCli] || snippets.hermes;
+      }
+
+      // Wire inspector tabs with keyboard arrow navigation (R-32)
+      const inspTabs = [...document.querySelectorAll('.inspector [role="tab"]:not(.cli-tab)')];
+      function selectInspTab(tabBtn) {
+        const name = tabBtn.dataset.tab;
+        inspTabs.forEach((b) => {
+          const active = b === tabBtn;
+          b.setAttribute("aria-selected", active ? "true" : "false");
+          $("panel-" + b.dataset.tab).classList.toggle("hidden", !active);
+        });
+        if (name === "request") renderInspectorRequest();
+        if (name === "failover") renderFailoverList();
+        if (name === "usage") renderInspUsage();
+        if (name === "quotas") renderQuotaViews();
+      }
+      inspTabs.forEach((b, idx) => {
+        b.addEventListener("click", () => selectInspTab(b));
+        b.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowRight") { e.preventDefault(); const n = inspTabs[(idx + 1) % inspTabs.length]; n.focus(); selectInspTab(n); }
+          if (e.key === "ArrowLeft") { e.preventDefault(); const p = inspTabs[(idx - 1 + inspTabs.length) % inspTabs.length]; p.focus(); selectInspTab(p); }
+        });
+      });
+
+      const cliTabs = [...document.querySelectorAll(".cli-tab")];
+      cliTabs.forEach((b, idx) => {
+        b.addEventListener("click", () => {
+          state.activeCli = b.dataset.cli;
+          cliTabs.forEach((x) => x.setAttribute("aria-selected", x === b ? "true" : "false"));
+          renderCliSnippet();
+        });
+        b.addEventListener("keydown", (e) => {
+          if (e.key === "ArrowRight") { e.preventDefault(); const n = cliTabs[(idx + 1) % cliTabs.length]; n.focus(); n.click(); }
+          if (e.key === "ArrowLeft") { e.preventDefault(); const p = cliTabs[(idx - 1 + cliTabs.length) % cliTabs.length]; p.focus(); p.click(); }
+        });
+      });
+
+      $("inspModelSel").addEventListener("change", renderInspectorRequest);
+      $("failoverPoolSel").addEventListener("change", renderFailoverList);
+      $("copyBaseBtn").addEventListener("click", () => copyWithFeedback($("copyBaseBtn"), endpointV1()));
+      $("copyCurlBtn").addEventListener("click", () => copyWithFeedback($("copyCurlBtn"), $("inspCode").textContent));
+      $("copyCliBtn").addEventListener("click", () => copyWithFeedback($("copyCliBtn"), $("cliSnippetBox").textContent));
+
+      document.querySelectorAll("#providerChips .chip").forEach((c) => {
+        c.addEventListener("click", () => {
+          if (c.dataset.filter) {
+            state.filterProv = c.dataset.filter;
+            document.querySelectorAll("#providerChips .chip[data-filter]").forEach((x) => {
+              x.setAttribute("aria-pressed", x.dataset.filter === state.filterProv ? "true" : "false");
+            });
+          } else if (c.dataset.cap) {
+            const k = c.dataset.cap;
+            if (state.caps.has(k)) { state.caps.delete(k); c.setAttribute("aria-pressed", "false"); }
+            else { state.caps.add(k); c.setAttribute("aria-pressed", "true"); }
+          }
+          renderModelTable();
+        });
+      });
+      $("modelSearch").addEventListener("input", (e) => { state.search = e.target.value; renderModelTable(); });
+
+      async function loadOverview() {
+        try {
+          const resp = await fetch("/api/gateway/public-overview");
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          const data = await resp.json();
+          state.data = data;
+
+          $("brandText").textContent = data.brand || "9Router Gateway";
+          $("footBrand").textContent = data.brand || "9Router Gateway";
+          $("verTag").textContent = "v" + (data.version || "1.8.5");
+          $("footMeta").textContent = "v" + (data.version || "1.8.5") + " | Uptime " + (data.uptime || "-");
+          $("heroBaseUrl").textContent = data.endpointV1 || (window.location.origin + "/v1");
+
+          const st = data.stats || {};
+          $("kpiModels").textContent = String(st.modelsCount || 0);
+          $("kpiModelsNote").textContent = (st.verifiedCatalogCount || 0) + " synced catalog entries";
+          $("kpiProviders").textContent = String(st.activeProvidersCount || 0) + " active";
+          $("kpiAutoNote").textContent = "Autonomy: " + (data.autonomyHealth || "ready");
+          $("kpiUsage").textContent = Number(st.requests24h || 0).toLocaleString() + " req";
+          $("kpiTokens").textContent = Number(st.tokens24h || 0).toLocaleString() + " tokens (24h)";
+
+          // Populate model selector with active unified pools
+          const pools = Object.keys(data.unifiedPools || {});
+          if (pools.length > 0) {
+            $("inspModelSel").innerHTML = pools.map((p) => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
+            $("failoverPoolSel").innerHTML = pools.map((p) => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
+          }
+
+          renderInspectorRequest();
+          renderFailoverList();
+          renderInspUsage();
+          renderQuotaViews();
+          renderModelTable();
+          renderCliSnippet();
+        } catch (err) {
+          $("kpiModels").textContent = "Error";
+          $("kpiModelsNote").textContent = "Overview unavailable";
+          $("verTag").textContent = "offline";
+          $("modelTableBody").innerHTML = '<tr><td colspan="7" class="state-box">Could not load /api/gateway/public-overview (' + esc(err.message) + '). <button class="btn btn-sm" id="retryLoadBtn" type="button" style="margin-left:8px;">Retry</button></td></tr>';
+          $("quotaTableBody").innerHTML = '<tr><td colspan="4" class="state-box">Overview fetch failed. Check <code>/health</code> and click Retry.</td></tr>';
+          const rb = document.getElementById("retryLoadBtn");
+          if (rb) rb.addEventListener("click", loadOverview);
+          renderInspectorRequest();
+          renderCliSnippet();
+        }
+      }
+
+      loadOverview();
+    })();
+  </script>
+</body>
+</html>
