@@ -284,6 +284,10 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 			return info, nil
 		}
 	}
+	switch strings.ToLower(strings.TrimSpace(modelStr)) {
+	case "deepseek-uncensored", "r1-1776", "deepseek-r1-1776", "uncensored":
+		return nil, fmt.Errorf("could not resolve model: %s (connect OpenRouter, Venice, Perplexity, NVIDIA, Chutes, or Ollama in Dashboard -> Providers to enable uncensored DeepSeek / r1-1776)", modelStr)
+	}
 
 	// 4. Check common providers as a fallback
 	for _, provider := range []string{"openai", "anthropic", "deepseek"} {

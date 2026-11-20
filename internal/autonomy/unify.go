@@ -198,6 +198,19 @@ var unifiedFamilyRules = []modelGroupRule{
 		targets:  []string{"deepseek/deepseek-reasoner", "deepseek-web/deepseek-reasoner", "kilo-gateway/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"},
 	},
 	{
+		matchers: []string{"deepseek-uncensored", "r1-1776", "deepseek-r1-1776", "uncensored"},
+		targets: []string{
+			"perplexity/r1-1776",
+			"openrouter/perplexity/r1-1776",
+			"venice/venice-uncensored",
+			"openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition:free",
+			"venice/deepseek-r1-671b",
+			"chutes/deepseek-ai/DeepSeek-R1",
+			"nvidia/deepseek-ai/deepseek-r1",
+			"ollama/huihui_ai/deepseek-r1-abliterated",
+		},
+	},
+	{
 		matchers: []string{"claude-sonnet-4-6", "claude-sonnet-4.6", "claude-sonnet-5-5", "claude-sonnet"},
 		targets:  []string{"anthropic/claude-sonnet-4-6", "claude/claude-sonnet-4-6", "antigravity/claude-sonnet-5-5-medium", "kilo-gateway/kilo-auto/free"},
 	},

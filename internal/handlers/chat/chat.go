@@ -371,6 +371,35 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}
+		var cat *autonomy.CatalogManager
+		if h.Engine != nil {
+			cat = h.Engine.Catalog
+		}
+		if uncTargets := autonomy.ResolveUnifiedPool(h.Repo, cat, "deepseek-uncensored"); len(uncTargets) > 0 {
+			seen := make(map[string]bool, len(data))
+			for _, d := range data {
+				seen[d.ID] = true
+			}
+			for _, id := range append([]string{"deepseek-uncensored"}, uncTargets...) {
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+				owner := "9router-unified"
+				if p, _, ok := strings.Cut(id, "/"); ok {
+					owner = p
+				}
+				ctxLen, maxOut := providers.GetModelTokenLimits(id)
+				data = append(data, modelObj{
+					ID:                  id,
+					Object:              "model",
+					Created:             now,
+					OwnedBy:             owner,
+					ContextLength:       ctxLen,
+					MaxCompletionTokens: maxOut,
+				})
+			}
+		}
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{

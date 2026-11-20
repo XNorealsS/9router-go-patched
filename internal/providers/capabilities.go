@@ -254,7 +254,7 @@ func GetModelTokenLimits(model string) (contextWindow int, maxOutput int) {
 		return 128000, 16384
 	case strings.Contains(m, "o1") || strings.Contains(m, "o3"):
 		return 200000, 100000
-	case strings.Contains(m, "deepseek") || strings.Contains(m, "qwen") || strings.Contains(m, "glm") || strings.Contains(m, "kimi"):
+	case strings.Contains(m, "deepseek") || strings.Contains(m, "1776") || strings.Contains(m, "venice-uncensored") || strings.Contains(m, "dolphin") || strings.Contains(m, "qwen") || strings.Contains(m, "glm") || strings.Contains(m, "kimi"):
 		return 131072, 8192
 	default:
 		return 128000, 4096

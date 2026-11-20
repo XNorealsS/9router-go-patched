@@ -279,4 +279,19 @@ func TestSyncKiloFree_AndResolveUnifiedPool(t *testing.T) {
 	if len(autoPool) < 4 {
 		t.Fatalf("expected unified auto pool combining active+free providers, got %v", autoPool)
 	}
+
+	// Uncensored pool stays inactive until OpenRouter / Venice / Perplexity is connected.
+	if uncBefore := ResolveUnifiedPool(repo, cat, "deepseek-uncensored"); len(uncBefore) != 0 {
+		t.Fatalf("expected deepseek-uncensored pool empty before provider connected, got %v", uncBefore)
+	}
+	_, err = database.Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES ('p1', 'perplexity', 'apikey', 'pplx', 1, '{"apiKey":"k"}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('or1', 'openrouter', 'apikey', 'or', 1, '{"apiKey":"k"}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('v1', 'venice', 'apikey', 'vn', 1, '{"apiKey":"k"}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+	)
+	if err != nil {
+		t.Fatalf("seed uncensored conns: %v", err)
+	}
+	uncAfter := ResolveUnifiedPool(repo, cat, "deepseek-uncensored")
+	if len(uncAfter) != 5 || uncAfter[0] != "perplexity/r1-1776" || uncAfter[1] != "openrouter/perplexity/r1-1776" || uncAfter[2] != "venice/venice-uncensored" {
+		t.Fatalf("unexpected deepseek-uncensored pool after connecting providers: %v", uncAfter)
+	}
 }

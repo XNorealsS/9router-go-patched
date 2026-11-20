@@ -245,6 +245,7 @@ func (h *GatewayPanelHandler) HandleIntegrationsGet(w http.ResponseWriter, r *ht
 			"auto-vision",
 			"deepseek-chat",
 			"deepseek-reasoner",
+			"deepseek-uncensored",
 			"claude-sonnet-4-6",
 			"gemini-3-flash",
 			"antigravity/gemini-3-flash",
