@@ -18,7 +18,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy"
+	"9router/proxy/internal/shutdown"
+	"9router/proxy/internal/translator"
 )
 
 // ---- Provider-specific executors ----
@@ -327,6 +330,74 @@ var opencodeGoMessagesModels = map[string]bool{
 	"qwen3.6-plus": true,
 }
 
+func opencodeGoMessagesURL(cfg *providers.ProviderConfig) string {
+	const defaultURL = "https://opencode.ai/zen/go/v1/messages"
+	if cfg == nil || cfg.BaseURL == "" || cfg.BaseURL == "https://opencode.ai/zen/go/v1/chat/completions" {
+		return defaultURL
+	}
+	if strings.Contains(cfg.BaseURL, "/chat/completions") {
+		return strings.Replace(cfg.BaseURL, "/chat/completions", "/messages", 1)
+	}
+	return strings.TrimRight(cfg.BaseURL, "/") + "/messages"
+}
+
+func execClaudeMessagesSSEStream(w http.ResponseWriter, upstream io.Reader, req *Request) error {
+	flusher := proxy.WriteSSEHeaders(w)
+	startTime := req.StartTime
+	if startTime.IsZero() {
+		startTime = time.Now()
+	}
+	var state translator.ClaudeToOpenAIStreamState
+	err := proxy.ScanStream(upstream, func(chunk []byte) {
+		trimmed := bytes.TrimSpace(chunk)
+		if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("[DONE]")) {
+			return
+		}
+		openaiSSE, tErr := translator.TranslateClaudeStreamToOpenAI(trimmed, &state)
+		if tErr != nil {
+			log.Error("executor", "opencode-go claude stream translate error", "error", tErr)
+		}
+		var out []byte
+		if req.TranslateResp {
+			// Caller requested /v1/messages (Anthropic format); pass through upstream Anthropic SSE.
+			var ev struct {
+				Type string `json:"type"`
+			}
+			_ = json.Unmarshal(trimmed, &ev)
+			if ev.Type != "" {
+				out = []byte(fmt.Sprintf("event: %s\ndata: %s\n\n", ev.Type, string(trimmed)))
+			} else {
+				out = []byte(fmt.Sprintf("data: %s\n\n", string(trimmed)))
+			}
+		} else {
+			out = openaiSSE
+		}
+		if len(out) == 0 {
+			return
+		}
+		if req.TTFT != nil && *req.TTFT == 0 {
+			*req.TTFT = time.Since(startTime).Milliseconds()
+		}
+		if req.ResponseBuf != nil {
+			req.ResponseBuf.Write(out)
+		}
+		w.Write(out)
+		if flusher != nil {
+			flusher.Flush()
+		}
+	})
+	if !req.TranslateResp && !state.DoneSent && (err == nil || shutdown.Fired()) {
+		w.Write([]byte("data: [DONE]\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+	if state.Usage != nil && req.Ctx != nil {
+		translator.SetUsage(req.Ctx, state.Usage)
+	}
+	return err
+}
+
 // ForwardOpencodeGo handles requests for opencode-go (paid tier).
 func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 	body := InjectReasoningContent(req.Body, "opencode-go")
@@ -340,7 +411,11 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 
 	if opencodeGoMessagesModels[reqObj.Model] {
 		// Route to /zen/go/v1/messages (Anthropic/Claude format)
-		messagesURL := "https://opencode.ai/zen/go/v1/messages"
+		messagesURL := opencodeGoMessagesURL(req.Config)
+		claudeBody, tErr := translator.TranslateOpenAIToClaudeRequest(body)
+		if tErr != nil {
+			return fmt.Errorf("ForwardOpencodeGo translate request: %w", tErr)
+		}
 		headers := map[string]string{
 			"Content-Type":      "application/json",
 			"x-api-key":         req.APIKey,
@@ -353,7 +428,7 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 		if ctx == nil {
 			ctx = context.Background()
 		}
-		resp, err := proxy.DoRequest(ctx, req.Client, "POST", messagesURL, headers, body)
+		resp, err := proxy.DoRequest(ctx, req.Client, "POST", messagesURL, headers, claudeBody)
 		if err != nil {
 			return fmt.Errorf("ForwardOpencodeGo (messages route): %w", err)
 		}
@@ -362,9 +437,29 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 		if req.IsStream {
 			stallReader := proxy.NewStallReader(resp.Body, 0, "opencode-go")
 			defer stallReader.Close()
-			return execSSEStream(w, stallReader, req)
+			return execClaudeMessagesSSEStream(w, stallReader, req)
 		}
-		return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
+		if req.TranslateResp {
+			return jsonResponse(req.Ctx, w, resp.Body, false, req.ResponseBuf)
+		}
+		rawResp, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+		if err != nil {
+			return fmt.Errorf("ForwardOpencodeGo read messages response: %w", err)
+		}
+		if req.ResponseBuf != nil {
+			req.ResponseBuf.Write(rawResp)
+		}
+		openaiResp, usage, tErr := translator.TranslateClaudeResponseToOpenAI(rawResp)
+		if tErr != nil {
+			return fmt.Errorf("ForwardOpencodeGo translate response: %w", tErr)
+		}
+		if usage != nil && req.Ctx != nil {
+			translator.SetUsage(req.Ctx, usage)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(openaiResp)
+		return nil
 	}
 
 	// Default OpenAI format endpoint: https://opencode.ai/zen/go/v1/chat/completions

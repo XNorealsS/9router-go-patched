@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
+
+var geminiToolCallSeq atomic.Uint64
 
 // ─── OpenAI → Gemini Native Format ───
 
@@ -416,7 +419,7 @@ func TranslateGeminiResponseToOpenAI(geminiBody []byte) ([]byte, *OpenAIUsage, e
 					args = []byte("{}")
 				}
 				fnName := UncloakToolName(part.FunctionCall.Name, nil)
-				id := fmt.Sprintf("call_%s_%d", fnName, len(toolCalls))
+				id := fmt.Sprintf("call_%s_%d", fnName, geminiToolCallSeq.Add(1))
 				if part.ThoughtSignature != "" {
 					id += "__ts__" + part.ThoughtSignature
 				}
@@ -576,7 +579,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 					tcIdx := state.ToolCallCount
 					state.ToolCallCount++
 					state.HasToolCalls = true
-					id := fmt.Sprintf("call_%s_%d_%d", fnName, tcIdx, time.Now().UnixNano())
+					id := fmt.Sprintf("call_%s_%d", fnName, geminiToolCallSeq.Add(1))
 					if part.ThoughtSignature != "" {
 						id += "__ts__" + part.ThoughtSignature
 					}
