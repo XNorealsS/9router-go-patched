@@ -20,11 +20,15 @@ type comboStickyState struct {
 
 // ChatHandler handles /v1/chat/completions (OpenAI) and /v1/messages (Claude) endpoints.
 type ChatHandler struct {
-	Repo        *db.Repo
-	Client      *http.Client
-	TokenSaver  *shared.TokenSaverConfig
-	stickyMu    sync.Mutex
-	stickyState map[string]*comboStickyState
+	Repo           *db.Repo
+	Client         *http.Client
+	TokenSaver     *shared.TokenSaverConfig
+	stickyMu       sync.Mutex
+	stickyState    map[string]*comboStickyState
+	refreshLocksMu sync.Mutex
+	refreshLocks   map[string]*sync.Mutex
+	proxyClientsMu sync.RWMutex
+	proxyClients   map[string]*http.Client
 }
 
 // Type aliases for shared types

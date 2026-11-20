@@ -183,7 +183,8 @@ var competitivePromptBlacklist = []string{
 	"Anthropic's Claude Agent SDK",
 }
 
-// StripCompetitivePrompts removes competitor identity strings from system instruction and contents.
+// StripCompetitivePrompts removes competitor SDK identity strings from system
+// instruction only, preserving user and assistant message contents intact.
 func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 	if req == nil {
 		return nil
@@ -204,22 +205,6 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 			Parts: parts,
 		}
 	}
-	contents := make([]GeminiContent, len(res.Contents))
-	for i, c := range res.Contents {
-		parts := make([]GeminiPart, len(c.Parts))
-		for j, p := range c.Parts {
-			if p.Text != "" {
-				text := p.Text
-				for _, phrase := range competitivePromptBlacklist {
-					text = strings.ReplaceAll(text, phrase, "")
-				}
-				p.Text = strings.TrimSpace(text)
-			}
-			parts[j] = p
-		}
-		contents[i] = GeminiContent{Role: c.Role, Parts: parts}
-	}
-	res.Contents = contents
 	return &res
 }
 

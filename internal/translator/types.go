@@ -215,11 +215,17 @@ type OpenAIMessage struct {
 	ToolCallID       string           `json:"tool_call_id,omitempty"` // used for tool role messages
 }
 
-// OpenAIContentBlock holds one content block (text or image_url).
+// OpenAIContentBlock holds one content block (text, image_url, or file).
 type OpenAIContentBlock struct {
 	Type     string          `json:"type"`
 	Text     string          `json:"text,omitempty"`
 	ImageUrl *OpenAIImageUrl `json:"image_url,omitempty"`
+	File     *OpenAIFileData `json:"file,omitempty"`
+}
+
+// OpenAIFileData holds inline data URI file payloads (e.g., PDF documents).
+type OpenAIFileData struct {
+	FileData string `json:"file_data"`
 }
 
 // OpenAIImageUrl holds a data URL for inline images.

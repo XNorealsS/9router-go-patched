@@ -242,8 +242,8 @@ func TestStripCompetitivePrompts(t *testing.T) {
 	if strings.Contains(stripped.SystemInstruction.Parts[0].Text, "Anthropic's Claude Agent SDK") {
 		t.Errorf("expected competitive prompt removed from systemInstruction, got %s", stripped.SystemInstruction.Parts[0].Text)
 	}
-	if strings.Contains(stripped.Contents[0].Parts[0].Text, "Anthropic's Claude Agent SDK") {
-		t.Errorf("expected competitive prompt removed from contents, got %s", stripped.Contents[0].Parts[0].Text)
+	if !strings.Contains(stripped.Contents[0].Parts[0].Text, "Anthropic's Claude Agent SDK") {
+		t.Errorf("expected user contents preserved intact, got %s", stripped.Contents[0].Parts[0].Text)
 	}
 }
 
@@ -265,6 +265,39 @@ func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 		if !validBackendModels[targetModel] {
 			t.Errorf("Antigravity synonym %q maps to invalid upstream model %q (will cause 404)", alias, targetModel)
 		}
+	}
+}
+
+func TestTranslateClaudeToOpenAI_DocumentPDFBlock(t *testing.T) {
+	claudeReq := `{
+		"model": "antigravity/gemini-3-flash",
+		"messages": [{
+			"role": "user",
+			"content": [
+				{"type": "text", "text": "Summarize this PDF"},
+				{"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0xLjQ="}}
+			]
+		}]
+	}`
+	openaiBytes, err := translator.TranslateClaudeToOpenAI([]byte(claudeReq))
+	if err != nil {
+		t.Fatalf("TranslateClaudeToOpenAI failed: %v", err)
+	}
+	if !strings.Contains(string(openaiBytes), "data:application/pdf;base64,JVBERi0xLjQ=") {
+		t.Errorf("expected PDF document block translated to OpenAI file block, got %s", openaiBytes)
+	}
+}
+
+func TestTranslateGeminiChunkToOpenAI_IncrementsToolCallIndices(t *testing.T) {
+	state := &translator.GeminiStreamState{}
+	chunk := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"fn_a","args":{"x":1}}},{"functionCall":{"name":"fn_b","args":{"y":2}}}]}}]}`)
+	out, err := translator.TranslateGeminiChunkToOpenAI(chunk, state)
+	if err != nil {
+		t.Fatalf("TranslateGeminiChunkToOpenAI failed: %v", err)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"index":0`) || !strings.Contains(s, `"index":1`) {
+		t.Errorf("expected tool_call indices 0 and 1, got %s", s)
 	}
 }
 

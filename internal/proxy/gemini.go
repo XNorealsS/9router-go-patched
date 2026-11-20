@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"9router/proxy/internal/providers"
@@ -87,10 +88,22 @@ func ForwardGemini(ctx context.Context, client *http.Client, cfg *providers.Prov
 		requestURL = fmt.Sprintf("%s/v1beta/models/%s:%s", baseURL, modelName, action)
 	}
 
+	userAgent := "9router-go"
+	if projectID != "" {
+		if envUA := os.Getenv("ANTIGRAVITY_USER_AGENT"); envUA != "" {
+			userAgent = envUA
+		} else {
+			userAgent = "antigravity/ide/2.1.1"
+		}
+	}
+
 	headers := map[string]string{
 		"Content-Type":  "application/json",
 		"Authorization": "Bearer " + apiKey,
-		"User-Agent":    "antigravity/ide/2.1.1 darwin/arm64",
+		"User-Agent":    userAgent,
+	}
+	for k, v := range cfg.StaticHeaders {
+		headers[k] = v
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(sendBody))

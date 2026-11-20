@@ -3,20 +3,23 @@ package chat
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
-	"9router/proxy/internal/log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"9router/proxy/internal/log"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy"
 	"9router/proxy/internal/proxy/oauth"
+	"9router/proxy/internal/shutdown"
 	"9router/proxy/internal/translator"
 )
+
+const maxGeminiRespBytes = 10 * 1024 * 1024
 
 // forwardGeminiNativeRequest handles forwarding for gemini-native providers (antigravity).
 func (h *ChatHandler) forwardGeminiNativeRequest(
@@ -31,6 +34,25 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	translateResponse bool,
 	metrics *streamMetrics,
 ) error {
+	return h.forwardGeminiNativeRequestWithClient(ctx, h.Client, w, provider, cfg, apiKey, connectionID, body, isStream, translateResponse, metrics)
+}
+
+func (h *ChatHandler) forwardGeminiNativeRequestWithClient(
+	ctx context.Context,
+	client *http.Client,
+	w http.ResponseWriter,
+	provider string,
+	cfg *providers.ProviderConfig,
+	apiKey string,
+	connectionID string,
+	body []byte,
+	isStream bool,
+	translateResponse bool,
+	metrics *streamMetrics,
+) error {
+	if client == nil {
+		client = h.Client
+	}
 	// Extract model
 	var reqMeta struct {
 		Model string `json:"model"`
@@ -43,7 +65,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 		modelName = "gemini-3-flash"
 	}
 
-	// OAuth refresh for providers using Gemini-native format (antigravity, etc)
+	// Read projectID (and refresh token if expired) for Gemini-native providers.
 	var projectID string
 	refreshedKey, pid, err := h.refreshOAuthTokenIfExpired(connectionID, apiKey)
 	if err != nil {
@@ -54,7 +76,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	}
 
 	if (provider == "antigravity" || provider == "gemini-cli") && projectID == "" && !projectProbeCached(connectionID) {
-		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, h.Client, apiKey)
+		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, client, apiKey)
 		switch {
 		case pid != "":
 			projectID = pid
@@ -70,7 +92,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 				if pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
-				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, h.Client, apiKey); pid2 != "" {
+				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, client, apiKey); pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
 				}
@@ -84,15 +106,13 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 
 	if projectID == "" {
 		if provider == "antigravity" {
-			projectID = generateAntigravityFallbackProjectID(connectionID)
-			log.Info("gemini", "generated fallback projectID for antigravity", "conn", connectionID, "projectID", projectID)
-		} else {
-			log.Info("gemini", "no projectID, fallback to OpenAI", "provider", provider)
-			return h.forwardRequest(ctx, w, cfg, apiKey, body, isStream, translateResponse, metrics)
+			return fmt.Errorf("antigravity: no project ID — onboard the account in Antigravity (antigravity.google) or set projectId in connection data")
 		}
+		log.Info("gemini", "no projectID, fallback to OpenAI", "provider", provider)
+		return h.forwardRequestWithClient(ctx, client, w, cfg, apiKey, body, isStream, translateResponse, metrics)
 	}
 
-	resp, err := proxy.ForwardGemini(ctx, h.Client, cfg, apiKey, string(body), isStream, projectID, modelName)
+	resp, err := proxy.ForwardGemini(ctx, client, cfg, apiKey, string(body), isStream, projectID, modelName)
 	if err != nil {
 		return fmt.Errorf("ForwardGemini (%s/%s): %w", provider, modelName, err)
 	}
@@ -107,7 +127,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	// Handle response — antigravity wraps non-streaming response in {"response": {...}}
 	// For streaming (SSE), the events are NOT wrapped — pipe directly.
 	if projectID != "" && !isStream {
-		raw, err := io.ReadAll(resp.Body)
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxGeminiRespBytes))
 		if err != nil {
 			log.Error("gemini", "read response body failed", "error", err)
 			return fmt.Errorf("read gemini response body: %w", err)
@@ -118,7 +138,14 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	if isStream {
 		contentType := resp.Header.Get("Content-Type")
 		if !strings.HasPrefix(strings.ToLower(contentType), "text/event-stream") {
-			return h.handleGeminiNonStream(ctx, w, resp.Body, translateResponse, metrics)
+			raw, err := io.ReadAll(io.LimitReader(resp.Body, maxGeminiRespBytes))
+			if err != nil {
+				return fmt.Errorf("read gemini non-sse response body: %w", err)
+			}
+			if projectID != "" {
+				raw = translator.UnwrapAntigravityResponse(raw)
+			}
+			return h.handleGeminiNonStream(ctx, w, bytes.NewReader(raw), translateResponse, metrics)
 		}
 		stallReader := proxy.NewStallReader(resp.Body, 0, provider)
 		bodyCloser = stallReader
@@ -127,24 +154,41 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	return h.handleGeminiNonStream(ctx, w, resp.Body, translateResponse, metrics)
 }
 
+func (h *ChatHandler) connRefreshLock(connectionID string) *sync.Mutex {
+	h.refreshLocksMu.Lock()
+	defer h.refreshLocksMu.Unlock()
+	if h.refreshLocks == nil {
+		h.refreshLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := h.refreshLocks[connectionID]
+	if !ok {
+		mu = &sync.Mutex{}
+		h.refreshLocks[connectionID] = mu
+	}
+	return mu
+}
+
 // storeAntigravityProjectID persists a discovered Antigravity project ID on the
 // connection so later requests skip the onboarding RPCs entirely.
 func (h *ChatHandler) storeAntigravityProjectID(connectionID, pid string) {
 	if connectionID == "" || pid == "" {
 		return
 	}
-	go func() {
-		if _, err := h.Repo.RawDB().Exec("UPDATE providerConnections SET data = json_set(data, '$.projectId', ?) WHERE id = ?", pid, connectionID); err != nil {
-			log.Warn("gemini", "update projectId failed", "conn", connectionID, "error", err)
-		}
-	}()
+	if _, err := h.Repo.RawDB().Exec("UPDATE providerConnections SET data = json_set(data, '$.projectId', ?) WHERE id = ?", pid, connectionID); err != nil {
+		log.Warn("gemini", "update projectId failed", "conn", connectionID, "error", err)
+	}
 }
 
 // refreshOAuthTokenIfExpired checks and refreshes OAuth token for any provider with refreshToken.
+// Uses a per-connection mutex to prevent concurrent refresh races and preserves rotated refresh tokens.
 func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken string) (string, string, error) {
 	if connectionID == "" {
 		return currentToken, "", nil
 	}
+
+	mu := h.connRefreshLock(connectionID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	db := h.Repo.RawDB()
 	row := db.QueryRow("SELECT provider, data FROM providerConnections WHERE id = ?", connectionID)
@@ -165,13 +209,20 @@ func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken stri
 		projectID = oauthData.ProjectID
 	}
 	if oauthData == nil || oauthData.RefreshToken == "" || !oauthData.IsExpired() {
+		// Another goroutine may have refreshed while we waited for mu; return the fresh DB token if present.
+		if oauthData != nil && oauthData.AccessToken != "" && !oauthData.IsExpired() {
+			return oauthData.AccessToken, projectID, nil
+		}
 		return currentToken, projectID, nil
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 
 	// Try per-provider OAuth refresher first
 	if refresher := oauth.Get(provider); refresher != nil {
 		log.Info("oauth", "token expired, custom refresh", "provider", provider, "project", projectID)
-		result, err := refresher(context.Background(), &oauth.Params{
+		result, err := refresher(ctx, &oauth.Params{
 			Client:       h.Client,
 			Provider:     provider,
 			RefreshToken: oauthData.RefreshToken,
@@ -190,17 +241,18 @@ func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken stri
 			existing[k] = v
 		}
 		if result.ProjectID != "" {
-			existing["projectId"] = result.ProjectID
+			projectID = result.ProjectID
+			existing["projectId"] = projectID
 		}
 		mergedJSON, err := json.Marshal(existing)
 		if err != nil {
 			log.Error("oauth", "marshal connection data failed", "conn", connectionID, "error", err)
-		} else {
-			db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
-				string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID)
+		} else if _, err := db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
+			string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID); err != nil {
+			log.Warn("oauth", "persist refreshed token failed", "conn", connectionID, "error", err)
 		}
-		log.Info("oauth", "token refreshed", "provider", provider, "project", result.ProjectID)
-		return result.AccessToken, result.ProjectID, nil
+		log.Info("oauth", "token refreshed", "provider", provider, "project", projectID)
+		return result.AccessToken, projectID, nil
 	}
 
 	// Fall back to standard OAuth2
@@ -210,7 +262,7 @@ func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken stri
 	}
 
 	log.Info("oauth", "token expired, standard refresh", "provider", provider, "project", projectID)
-	tokenResp, err := providers.RefreshToken(cfg, oauthData.RefreshToken)
+	tokenResp, err := providers.RefreshTokenWithContext(ctx, h.Client, cfg, oauthData.RefreshToken)
 	if err != nil {
 		return currentToken, projectID, fmt.Errorf("OAuth refresh for %s: %w", provider, err)
 	}
@@ -227,9 +279,9 @@ func (h *ChatHandler) refreshOAuthTokenIfExpired(connectionID, currentToken stri
 	mergedJSON, err := json.Marshal(existing)
 	if err != nil {
 		log.Error("oauth", "marshal connection data failed", "conn", connectionID, "error", err)
-	} else {
-		db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
-			string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID)
+	} else if _, err := db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
+		string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID); err != nil {
+		log.Warn("oauth", "persist refreshed token failed", "conn", connectionID, "error", err)
 	}
 
 	log.Info("oauth", "token refreshed", "provider", provider, "project", projectID)
@@ -241,6 +293,10 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 	if connectionID == "" {
 		return "", "", nil
 	}
+
+	mu := h.connRefreshLock(connectionID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	db := h.Repo.RawDB()
 	row := db.QueryRow("SELECT provider, data FROM providerConnections WHERE id = ?", connectionID)
@@ -260,10 +316,13 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 		return "", "", fmt.Errorf("no refresh token available")
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
 	// Try per-provider OAuth refresher first
 	if refresher := oauth.Get(provider); refresher != nil {
 		log.Info("oauth", "force refresh", "provider", provider)
-		result, err := refresher(context.Background(), &oauth.Params{
+		result, err := refresher(ctx, &oauth.Params{
 			Client:       h.Client,
 			Provider:     provider,
 			RefreshToken: oauthData.RefreshToken,
@@ -274,19 +333,22 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 				log.Error("oauth", "unmarshal conn data failed", "conn", connectionID, "error", err)
 				existing = make(map[string]interface{})
 			}
-			existing["accessToken"] = result.AccessToken
-			if result.ProjectID != "" {
-				existing["projectId"] = result.ProjectID
+			for k, v := range oauth.BuildConnectionUpdate(result) {
+				existing[k] = v
 			}
-			existing["expiresAt"] = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second).Format(time.RFC3339)
+			pid := oauthData.ProjectID
+			if result.ProjectID != "" {
+				pid = result.ProjectID
+				existing["projectId"] = pid
+			}
 			mergedJSON, err := json.Marshal(existing)
 			if err != nil {
 				log.Error("oauth", "marshal conn data failed", "conn", connectionID, "error", err)
-			} else {
-				db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
-					string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID)
+			} else if _, err := db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
+				string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID); err != nil {
+				log.Warn("oauth", "persist force-refreshed token failed", "conn", connectionID, "error", err)
 			}
-			return result.AccessToken, result.ProjectID, nil
+			return result.AccessToken, pid, nil
 		}
 	}
 
@@ -297,7 +359,7 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 	}
 
 	log.Info("oauth", "force refresh (standard)", "provider", provider)
-	tokenResp, err := providers.RefreshToken(cfg, oauthData.RefreshToken)
+	tokenResp, err := providers.RefreshTokenWithContext(ctx, h.Client, cfg, oauthData.RefreshToken)
 	if err != nil {
 		return "", "", fmt.Errorf("OAuth refresh for %s: %w", provider, err)
 	}
@@ -314,20 +376,19 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 	mergedJSON, err := json.Marshal(existing)
 	if err != nil {
 		log.Error("oauth", "marshal conn data failed", "conn", connectionID, "error", err)
-	} else {
-		db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
-			string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID)
+	} else if _, err := db.Exec("UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
+		string(mergedJSON), time.Now().UTC().Format(time.RFC3339), connectionID); err != nil {
+		log.Warn("oauth", "persist force-refreshed token failed", "conn", connectionID, "error", err)
 	}
 
-	pid := ""
-	if v, ok := existing["projectId"].(string); ok {
+	pid := oauthData.ProjectID
+	if v, ok := existing["projectId"].(string); ok && v != "" {
 		pid = v
 	}
 	return tokenResp.AccessToken, pid, nil
 }
 
 // handleGeminiStream processes Gemini stream SSE chunks and translates to OpenAI format.
-// The stream drops the first SSE line (model metadata), then translates each content block SSE.
 func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWriter, upstream io.Reader, translateResponse bool, metrics *streamMetrics) error {
 	flusher := proxy.WriteSSEHeaders(w)
 	geminiState := &translator.GeminiStreamState{}
@@ -336,6 +397,7 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 	// collide across concurrent requests; always cleared on exit.
 	sessionKey := fmt.Sprintf("gemini-stream-%d", time.Now().UnixNano())
 	defer translator.ClearStreamState(sessionKey)
+	finished := false
 
 	err := proxy.ScanStream(upstream, func(chunk []byte) {
 		chunkStr := strings.TrimSpace(string(chunk))
@@ -376,16 +438,32 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 				if claudeChunk == nil {
 					continue
 				}
+				if bytes.Contains(claudeChunk, []byte("[DONE]")) {
+					finished = true
+				}
 				w.Write(claudeChunk)
 			}
 		} else {
+			// TranslateGeminiChunkToOpenAI already terminates each SSE event with \n\n.
 			w.Write(openaiChunk)
-			w.Write([]byte("\n\n"))
 		}
 		if flusher != nil {
 			flusher.Flush()
 		}
 	})
+
+	if !translateResponse {
+		w.Write([]byte("data: [DONE]\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	} else if shutdown.Fired() && !finished {
+		w.Write([]byte("data: [DONE]\n\n"))
+		if flusher != nil {
+			flusher.Flush()
+		}
+	}
+
 	// Pull actual accumulated usage (incl. cached tokens) out of the session so
 	// the log sees real numbers instead of the fallback estimate.
 	if translateResponse {
@@ -401,7 +479,7 @@ func (h *ChatHandler) handleGeminiStream(ctx context.Context, w http.ResponseWri
 // handleGeminiNonStream translates a Gemini non-stream response to OpenAI format,
 // and then to Claude format if translateResponse is true.
 func (h *ChatHandler) handleGeminiNonStream(ctx context.Context, w http.ResponseWriter, upstream io.Reader, translateResp bool, metrics *streamMetrics) error {
-	body, err := io.ReadAll(upstream)
+	body, err := io.ReadAll(io.LimitReader(upstream, maxGeminiRespBytes))
 	if err != nil {
 		return fmt.Errorf("read gemini response body: %w", err)
 	}
@@ -445,12 +523,4 @@ func (h *ChatHandler) handleGeminiNonStream(ctx context.Context, w http.Response
 	w.WriteHeader(http.StatusOK)
 	w.Write(openaiResp)
 	return nil
-}
-
-func generateAntigravityFallbackProjectID(seed string) string {
-	if seed == "" {
-		seed = "antigravity-default"
-	}
-	hash := sha256.Sum256([]byte(seed))
-	return fmt.Sprintf("cloudcode-pa-%x", hash[:5])
 }

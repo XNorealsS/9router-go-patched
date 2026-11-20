@@ -121,6 +121,18 @@ func convertClaudeMessage(msg ClaudeMessage) ([]OpenAIMessage, error) {
 					ImageUrl: &OpenAIImageUrl{URL: url},
 				})
 			}
+		case "document":
+			if block.Source != nil && block.Source.Type == "base64" && block.Source.Data != "" {
+				mediaType := block.Source.MediaType
+				if mediaType == "" {
+					mediaType = "application/pdf"
+				}
+				dataURI := fmt.Sprintf("data:%s;base64,%s", mediaType, block.Source.Data)
+				textParts = append(textParts, OpenAIContentBlock{
+					Type: "file",
+					File: &OpenAIFileData{FileData: dataURI},
+				})
+			}
 		case "tool_use":
 			toolCalls = append(toolCalls, OpenAIToolCall{
 				ID:   block.ID,

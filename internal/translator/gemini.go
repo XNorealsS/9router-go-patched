@@ -17,6 +17,7 @@ type GeminiStreamState struct {
 	Model            string
 	Usage            *OpenAIUsage
 	FinishReason     string
+	ToolCallCount    int
 }
 
 // GeminiFileData represents remote or uploaded files referenced by URI.
@@ -188,11 +189,15 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 
 	for _, msg := range msgs {
 		switch msg.Role {
-		case "system":
+		case "system", "developer":
 			content := extractContentString(msg.Content)
 			if content != "" {
-				req.SystemInstruction = &GeminiContent{
-					Parts: []GeminiPart{{Text: content}},
+				if req.SystemInstruction == nil {
+					req.SystemInstruction = &GeminiContent{
+						Parts: []GeminiPart{{Text: content}},
+					}
+				} else {
+					req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, GeminiPart{Text: content})
 				}
 			}
 
@@ -558,13 +563,15 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 						args = []byte("{}")
 					}
 					fnName := UncloakToolName(part.FunctionCall.Name, nil)
-					id := fmt.Sprintf("call_%s_%d", fnName, time.Now().UnixNano())
+					tcIdx := state.ToolCallCount
+					state.ToolCallCount++
+					id := fmt.Sprintf("call_%s_%d_%d", fnName, tcIdx, time.Now().UnixNano())
 					if part.ThoughtSignature != "" {
 						id += "__ts__" + part.ThoughtSignature
 					}
 					delta["tool_calls"] = []map[string]interface{}{
 						{
-							"index": 0,
+							"index": tcIdx,
 							"id":    id,
 							"type":  "function",
 							"function": map[string]interface{}{
