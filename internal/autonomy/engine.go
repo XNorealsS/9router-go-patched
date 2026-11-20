@@ -164,6 +164,11 @@ func (e *Engine) SyncNow(ctx context.Context, trigger string) {
 	}
 	defer e.syncRunning.Store(false)
 
+	forceCatalog := trigger == "manual" || trigger == "startup"
+	if forceCatalog || e.Catalog.NeedsSync(e.CatalogTTL) {
+		_, _ = e.Catalog.SyncKiloFree(ctx, e.Client)
+	}
+
 	conns, err := e.Repo.GetProviderConnections("antigravity", true)
 	if err != nil {
 		log.Warn("autonomy", "list antigravity connections failed", "error", err)
@@ -177,7 +182,6 @@ func (e *Engine) SyncNow(ctx context.Context, trigger string) {
 	}
 
 	catalogSyncedThisPass := false
-	forceCatalog := trigger == "manual" || trigger == "startup"
 
 	for _, c := range conns {
 		if ctx.Err() != nil {

@@ -209,11 +209,24 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 			if info := h.resolvePrefixProvider(provider, model); info != nil {
 				return info, nil
 			}
+			// Handle vendor-prefixed Kilo free IDs passed directly (e.g. "kilo-auto/free", "nvidia/nemotron-...:free")
+			if strings.HasSuffix(strings.ToLower(modelStr), ":free") || strings.EqualFold(modelStr, "kilo-auto/free") {
+				return &ModelInfo{Provider: "kilo-gateway", Model: modelStr}, nil
+			}
 		}
 		return &ModelInfo{Provider: provider, Model: model}, nil
 	}
 
 	if h.Repo == nil {
+		var cat *autonomy.CatalogManager
+		if h.Engine != nil {
+			cat = h.Engine.Catalog
+		}
+		if targets := autonomy.ResolveUnifiedPool(nil, cat, modelStr); len(targets) > 0 {
+			if info := h.unifiedTargetsToModelInfo(targets); info != nil {
+				return info, nil
+			}
+		}
 		return nil, fmt.Errorf("could not resolve model: %s", modelStr)
 	}
 
@@ -261,6 +274,17 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 		}
 	}
 
+	// 3.5 Cross-provider unified model resolution (e.g. "deepseek-chat", "claude-sonnet-4-6", "auto", "auto-reasoning")
+	var cat *autonomy.CatalogManager
+	if h.Engine != nil {
+		cat = h.Engine.Catalog
+	}
+	if targets := autonomy.ResolveUnifiedPool(h.Repo, cat, modelStr); len(targets) > 0 {
+		if info := h.unifiedTargetsToModelInfo(targets); info != nil {
+			return info, nil
+		}
+	}
+
 	// 4. Check common providers as a fallback
 	for _, provider := range []string{"openai", "anthropic", "deepseek"} {
 		conns, err := h.Repo.GetProviderConnections(provider, true)
@@ -270,6 +294,21 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	}
 
 	return nil, fmt.Errorf("could not resolve model: %s", modelStr)
+}
+
+func (h *ChatHandler) unifiedTargetsToModelInfo(targets []string) *ModelInfo {
+	if len(targets) == 0 {
+		return nil
+	}
+	first := h.resolveModelEntry(targets[0])
+	if first == nil {
+		return nil
+	}
+	if len(targets) > 1 {
+		first.ComboModels = targets
+		first.Strategy = "fallback"
+	}
+	return first
 }
 
 // resolvePrefixProvider checks if a provider name is a providerNode prefix.

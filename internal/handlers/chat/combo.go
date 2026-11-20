@@ -398,18 +398,17 @@ func (h *ChatHandler) handleComboFallback(ctx context.Context, w http.ResponseWr
 				var connID string
 				var connData *ConnectionData
 				isKnownNoAuth := false
-				if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
+				conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
+				if err == nil && conn != nil {
+					connID = conn.ID
+					connData = cData
+				} else if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
 					isKnownNoAuth = true
 					connData = &ConnectionData{
 						APIKey: cfg.DefaultAPIKey,
 					}
 				} else {
-					conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
-					if err != nil {
-						break
-					}
-					connID = conn.ID
-					connData = cData
+					break
 				}
 				// Skip a connection that is already locked for this model
 				if connID != "" {
@@ -599,18 +598,17 @@ func (h *ChatHandler) handleMessagesComboFallback(ctx context.Context, w http.Re
 				var connID string
 				var connData *ConnectionData
 				isKnownNoAuth := false
-				if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
+				conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
+				if err == nil && conn != nil {
+					connID = conn.ID
+					connData = cData
+				} else if cfg, ok := providers.KnownProviders[modelInfo.Provider]; ok && (cfg.NoAuth || cfg.DefaultAPIKey != "") {
 					isKnownNoAuth = true
 					connData = &ConnectionData{
 						APIKey: cfg.DefaultAPIKey,
 					}
 				} else {
-					conn, cData, err := h.getBestConnection(modelInfo.Provider, modelInfo.ConnectionID, excludeIDs, modelInfo.Model)
-					if err != nil {
-						break
-					}
-					connID = conn.ID
-					connData = cData
+					break
 				}
 				// Skip a connection that is already locked for this model
 				if connID != "" {

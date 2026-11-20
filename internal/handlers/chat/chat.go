@@ -303,6 +303,7 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			if seen[fullID] {
 				continue
 			}
+			seen[fullID] = true
 			data = append(data, modelObj{
 				ID:                  fullID,
 				Object:              "model",
@@ -310,6 +311,33 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				OwnedBy:             "antigravity",
 				ContextLength:       m.MaxTokens,
 				MaxCompletionTokens: m.MaxOutputTokens,
+			})
+		}
+		for _, m := range h.Engine.Catalog.VerifiedKiloFreeModels() {
+			fullID := "kilo-gateway/" + m.ID
+			if seen[fullID] {
+				continue
+			}
+			seen[fullID] = true
+			data = append(data, modelObj{
+				ID:                  fullID,
+				Object:              "model",
+				Created:             now,
+				OwnedBy:             "kilo-gateway",
+				ContextLength:       m.MaxTokens,
+				MaxCompletionTokens: m.MaxOutputTokens,
+			})
+		}
+		for _, virt := range autonomy.UnifiedVirtualModels() {
+			if seen[virt] {
+				continue
+			}
+			seen[virt] = true
+			data = append(data, modelObj{
+				ID:      virt,
+				Object:  "model",
+				Created: now,
+				OwnedBy: "9router-unified",
 			})
 		}
 	}
@@ -331,6 +359,7 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				if seen[id] {
 					continue
 				}
+				seen[id] = true
 				ctxLen, maxOut := providers.GetModelTokenLimits(id)
 				data = append(data, modelObj{
 					ID:                  id,
@@ -341,33 +370,6 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 					MaxCompletionTokens: maxOut,
 				})
 			}
-		}
-	}
-
-	{
-		seen := make(map[string]bool, len(data))
-		for _, d := range data {
-			seen[d.ID] = true
-		}
-		for _, id := range []string{
-			"kilo-gateway/kilo-auto/free",
-			"kilo-gateway/nvidia/nemotron-3-ultra-550b-a55b:free",
-			"kilo-gateway/nvidia/nemotron-3.5-super-vl:free",
-			"kilo-gateway/nvidia/nemotron-3.5-lightning:free",
-			"kilo-gateway/inclusionai/ling-3.2-flash:free",
-			"kilo-gateway/baidu/ernie-5.5-flash-preview:free",
-			"kilo-gateway/recursive/flint-v1.0:free",
-			"kilo-gateway/liquid/lfm-3-1.7b:free",
-		} {
-			if seen[id] {
-				continue
-			}
-			data = append(data, modelObj{
-				ID:      id,
-				Object:  "model",
-				Created: now,
-				OwnedBy: "kilo-gateway",
-			})
 		}
 	}
 

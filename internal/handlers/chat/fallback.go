@@ -175,6 +175,25 @@ func (h *ChatHandler) tryForwardWithConnection(
 	}
 
 	pipedBody := h.applyTokenSavers(body)
+	ctxWin, maxOut := providers.GetModelTokenLimits(model)
+	if h.Engine != nil {
+		ctxWin, maxOut = h.Engine.Catalog.ModelLimits(provider, model)
+	}
+	fittedBody, bStats := tokensaver.FitContextBudget(pipedBody, provider, ctxWin, maxOut)
+	if h.Engine != nil && (bStats.CondensedTurns > 0 || bStats.CompressedTools > 0 || bStats.SanitizedToolIDs) {
+		h.Engine.Recorder.Record(autonomy.Event{
+			Category:     autonomy.CategoryRouting,
+			Provider:     provider,
+			ConnectionID: connectionID,
+			Model:        model,
+			Detected:     fmt.Sprintf("adapted context (%d -> %d est. tokens)", bStats.EstimatedTokensBefore, bStats.EstimatedTokensAfter),
+			Action:       fmt.Sprintf("condensed=%d turns, compressed=%d tools, sanitizedTS=%v", bStats.CondensedTurns, bStats.CompressedTools, bStats.SanitizedToolIDs),
+			Reason:       fmt.Sprintf("fitted to %s/%s window (%d tokens)", provider, model, ctxWin),
+			Outcome:      autonomy.OutcomeOK,
+		})
+	}
+	pipedBody = fittedBody
+
 	start := time.Now()
 	metrics := &streamMetrics{}
 	var fwdErr error
@@ -190,24 +209,27 @@ func (h *ChatHandler) tryForwardWithConnection(
 		return proxyErr
 	}
 
-	if exec := executor.Get(provider); exec != nil {
-		fwdErr = exec(w, &executor.Request{
-			Ctx:           ctx,
-			Client:        httpClient,
-			Config:        providerCfg,
-			APIKey:        apiKey,
-			Body:          pipedBody,
-			IsStream:      isStream,
-			TranslateResp: translateResponse,
-			ResponseBuf:   &metrics.ResponseBuf,
-			StartTime:     start,
-			TTFT:          &metrics.TTFT,
-		})
-	} else if providerCfg.IsGeminiNative() {
-		fwdErr = h.forwardGeminiNativeRequestWithClient(ctx, httpClient, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
-	} else {
-		fwdErr = h.forwardRequestWithClient(ctx, httpClient, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
+	dispatchUpstream := func(reqBody []byte, tok string) error {
+		if exec := executor.Get(provider); exec != nil {
+			return exec(w, &executor.Request{
+				Ctx:           ctx,
+				Client:        httpClient,
+				Config:        providerCfg,
+				APIKey:        tok,
+				Body:          reqBody,
+				IsStream:      isStream,
+				TranslateResp: translateResponse,
+				ResponseBuf:   &metrics.ResponseBuf,
+				StartTime:     start,
+				TTFT:          &metrics.TTFT,
+			})
+		} else if providerCfg.IsGeminiNative() {
+			return h.forwardGeminiNativeRequestWithClient(ctx, httpClient, w, provider, providerCfg, tok, connectionID, reqBody, isStream, translateResponse, metrics)
+		}
+		return h.forwardRequestWithClient(ctx, httpClient, w, providerCfg, tok, reqBody, isStream, translateResponse, metrics)
 	}
+
+	fwdErr = dispatchUpstream(pipedBody, apiKey)
 
 	var ue *upstreamError
 	if errors.As(fwdErr, &ue) && ue.StatusCode == http.StatusUnauthorized && connectionID != "" {
@@ -215,24 +237,25 @@ func (h *ChatHandler) tryForwardWithConnection(
 		if rErr == nil && refreshedKey != "" && refreshedKey != apiKey {
 			log.Info("fallback", "reactive 401 token refresh success, retrying request", "conn", connectionID)
 			apiKey = refreshedKey
-			if exec := executor.Get(provider); exec != nil {
-				fwdErr = exec(w, &executor.Request{
-					Ctx:           ctx,
-					Client:        httpClient,
-					Config:        providerCfg,
-					APIKey:        apiKey,
-					Body:          pipedBody,
-					IsStream:      isStream,
-					TranslateResp: translateResponse,
-					ResponseBuf:   &metrics.ResponseBuf,
-					StartTime:     start,
-					TTFT:          &metrics.TTFT,
+			fwdErr = dispatchUpstream(pipedBody, apiKey)
+		}
+	} else if errors.As(fwdErr, &ue) && tokensaver.IsContextOverflowError(ue.StatusCode, ue.Body) {
+		tightBody, tightStats := tokensaver.FitContextBudget(pipedBody, provider, max(8192, ctxWin/2), maxOut)
+		if tightStats.CondensedTurns > 0 || tightStats.CompressedTools > 0 {
+			log.Info("fallback", "reactive context overflow compaction retry", "provider", provider, "model", model, "after_tokens", tightStats.EstimatedTokensAfter)
+			if h.Engine != nil {
+				h.Engine.Recorder.Record(autonomy.Event{
+					Category:     autonomy.CategoryRecovery,
+					Provider:     provider,
+					ConnectionID: connectionID,
+					Model:        model,
+					Detected:     "upstream rejected payload due to context length",
+					Action:       fmt.Sprintf("re-compacted %d turns -> retrying (%d est. tokens)", tightStats.CondensedTurns, tightStats.EstimatedTokensAfter),
+					Reason:       "reactive context window recovery",
+					Outcome:      autonomy.OutcomeDegraded,
 				})
-			} else if providerCfg.IsGeminiNative() {
-				fwdErr = h.forwardGeminiNativeRequestWithClient(ctx, httpClient, w, provider, providerCfg, apiKey, connectionID, pipedBody, isStream, translateResponse, metrics)
-			} else {
-				fwdErr = h.forwardRequestWithClient(ctx, httpClient, w, providerCfg, apiKey, pipedBody, isStream, translateResponse, metrics)
 			}
+			fwdErr = dispatchUpstream(tightBody, apiKey)
 		}
 	}
 

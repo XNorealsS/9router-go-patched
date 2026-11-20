@@ -91,6 +91,7 @@ type CatalogManager struct {
 	lastError       string
 	defaultModelID  string
 	models          map[string]*ModelCapabilityInfo
+	kiloFreeModels  []ModelCapabilityInfo
 	runtimeStatus   map[string]ModelCapabilityInfo // runtime-only deprecations/uncertain marks
 	aliases         []AliasStatus
 	lastDiff        *CatalogDiff
@@ -560,7 +561,7 @@ func (cm *CatalogManager) Snapshot() CatalogSnapshot {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
-	models := make([]ModelCapabilityInfo, 0, len(cm.models))
+	models := make([]ModelCapabilityInfo, 0, len(cm.models)+len(cm.kiloFreeModels))
 	var vCount, uCount, dCount int
 	for _, m := range cm.models {
 		models = append(models, *m)
@@ -573,9 +574,16 @@ func (cm *CatalogManager) Snapshot() CatalogSnapshot {
 			uCount++
 		}
 	}
+	for _, km := range cm.kiloFreeModels {
+		models = append(models, km)
+		vCount++
+	}
 	sort.Slice(models, func(i, j int) bool {
 		if models[i].Status != models[j].Status {
 			return models[i].Status == StatusVerified || (models[i].Status == StatusUncertain && models[j].Status == StatusDeprecated)
+		}
+		if models[i].Provider != models[j].Provider {
+			return models[i].Provider < models[j].Provider
 		}
 		return models[i].ID < models[j].ID
 	})

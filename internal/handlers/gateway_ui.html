@@ -443,12 +443,12 @@
         const aliases = cat.aliases || [];
         const depAliasCount = aliases.filter(a => a.status === "deprecated").length;
         $("aliasHealth").textContent = aliases.length + " synonyms (" + depAliasCount + " obsolete)";
-        $("catalogBody").innerHTML = models.length ? models.slice(0, 60).map(m => {
+        $("catalogBody").innerHTML = models.length ? models.slice(0, 100).map(m => {
           const q = typeof m.quotaRemaining === "number" ? (Math.round(m.quotaRemaining * 100) + "%") : "-";
           const lim = (m.maxTokens ? Math.round(m.maxTokens/1000)+"k" : "-") + " / " + (m.maxOutputTokens ? Math.round(m.maxOutputTokens/1000)+"k" : "-");
           const c = m.capabilities || {};
           const tags = [c.Vision && "vision", c.PDF && "pdf", c.Tools && "tools", c.Reasoning && "think", c.ImageOutput && "img_gen", c.Search && "search"].filter(Boolean).map(t => '<span class="pill">' + t + '</span>').join("");
-          return '<tr><td>' + esc(m.id) + (m.recommended ? ' <span class="pill">rec</span>' : '') + '</td><td>' + statusPill(m.status) + '</td><td>' + q + '</td><td>' + lim + '</td><td>' + (tags || '<span class="muted">text</span>') + '</td></tr>';
+          return '<tr><td><span class="pill">' + esc(m.provider || "antigravity") + '</span> ' + esc(m.id) + (m.recommended ? ' <span class="pill">rec</span>' : '') + '</td><td>' + statusPill(m.status) + '</td><td>' + q + '</td><td>' + lim + '</td><td>' + (tags || '<span class="muted">text</span>') + '</td></tr>';
         }).join("") : '<tr><td colspan="5" class="muted">No models synced yet.</td></tr>';
 
         $("tgRtk").checked = !!sys.tokenSavers.rtk;

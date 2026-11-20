@@ -184,6 +184,10 @@ func TestEngine_FullSyncLifecycle(t *testing.T) {
 	}
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/kilo" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{}})
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"defaultAgentModelId": "gemini-3-flash",
 			"models": map[string]any{
@@ -192,6 +196,7 @@ func TestEngine_FullSyncLifecycle(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
+	t.Setenv("KILO_GATEWAY_MODELS_URL", srv.URL+"/kilo")
 
 	repo := db.NewRepo(database)
 	eng := NewEngine(repo, srv.Client())
@@ -218,5 +223,60 @@ func TestEngine_FullSyncLifecycle(t *testing.T) {
 	snap := eng.StatusSnapshot()
 	if snap.OverallHealth != "autonomous" || !snap.Catalog.Synced || snap.Catalog.VerifiedCount != 1 {
 		t.Fatalf("unexpected engine status snapshot: %+v", snap)
+	}
+}
+
+func TestSyncKiloFree_AndResolveUnifiedPool(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"data": []map[string]any{
+				{"id": "kilo-auto/free", "name": "Kilo Auto Free", "context_length": 200000, "max_completion_tokens": 16384},
+				{"id": "nvidia/nemotron-3.5-super-vl:free", "name": "Nemotron VL", "context_length": 131072, "max_completion_tokens": 8192, "architecture": map[string]any{"input_modalities": []string{"text", "image"}}},
+				{"id": "paid/gpt-pro", "name": "Paid Model", "context_length": 128000, "pricing": map[string]any{"prompt": "0.005"}},
+			},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("KILO_GATEWAY_MODELS_URL", srv.URL)
+
+	database, err := db.OpenDatabase(filepath.Join(t.TempDir(), "unify.sqlite"))
+	if err != nil {
+		t.Fatalf("OpenDatabase: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+	for _, stmt := range dbtest.SchemaStatements() {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("schema: %v", err)
+		}
+	}
+	_, err = database.Exec(
+		`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES ('d1', 'deepseek-web', 'cookie', 'ds-cookie', 1, '{"apiKey":"tok"}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('a1', 'antigravity', 'oauth', 'ag-main', 1, '{"accessToken":"t","projectId":"p"}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`,
+	)
+	if err != nil {
+		t.Fatalf("seed conns: %v", err)
+	}
+
+	repo := db.NewRepo(database)
+	cat := NewCatalogManager(NewRecorder())
+	count, err := cat.SyncKiloFree(context.Background(), srv.Client())
+	if err != nil || count != 2 {
+		t.Fatalf("expected 2 free models synced, got %d err=%v", count, err)
+	}
+	if ctxWin, _ := cat.ModelLimits("kilo-gateway", "kilo-auto/free"); ctxWin != 200000 {
+		t.Fatalf("expected synced 200k context limit, got %d", ctxWin)
+	}
+
+	// Unified bare model names expand across active providers cleanly.
+	dsPool := ResolveUnifiedPool(repo, cat, "deepseek-chat")
+	if len(dsPool) < 2 || dsPool[0] != "deepseek-web/deepseek-chat" {
+		t.Fatalf("unexpected unified deepseek-chat pool: %v", dsPool)
+	}
+	claudePool := ResolveUnifiedPool(repo, cat, "claude-sonnet-4-6")
+	if len(claudePool) < 2 || claudePool[0] != "antigravity/claude-sonnet-5-5-medium" {
+		t.Fatalf("unexpected unified claude pool: %v", claudePool)
+	}
+	autoPool := ResolveUnifiedPool(repo, cat, "auto")
+	if len(autoPool) < 4 {
+		t.Fatalf("expected unified auto pool combining active+free providers, got %v", autoPool)
 	}
 }
