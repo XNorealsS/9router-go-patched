@@ -301,6 +301,93 @@ func TestTranslateGeminiChunkToOpenAI_IncrementsToolCallIndices(t *testing.T) {
 	}
 }
 
+func TestTranslateOpenAIToGemini_CoalescesParallelToolResults(t *testing.T) {
+	body := []byte(`{
+		"model": "gemini-3-flash",
+		"messages": [
+			{"role": "system", "content": "Be brief."},
+			{"role": "user", "content": "Run two tools"},
+			{
+				"role": "assistant",
+				"tool_calls": [
+					{"id": "call_1", "type": "function", "function": {"name": "alpha", "arguments": "{\"x\":1}"}},
+					{"id": "call_2", "type": "function", "function": {"name": "beta", "arguments": "{\"y\":2}"}}
+				]
+			},
+			{"role": "tool", "tool_call_id": "call_1", "content": "{\"ok\":1}"},
+			{"role": "tool", "tool_call_id": "call_2", "content": "{\"ok\":2}"}
+		]
+	}`)
+
+	geminiJSON, err := translator.TranslateOpenAIToGemini(body)
+	if err != nil {
+		t.Fatalf("TranslateOpenAIToGemini failed: %v", err)
+	}
+
+	raw := string(geminiJSON)
+	if !strings.Contains(raw, `"systemInstruction"`) {
+		t.Errorf("expected camelCase systemInstruction field, got %s", raw)
+	}
+	if strings.Contains(raw, `"system_instruction"`) {
+		t.Errorf("unexpected snake_case system_instruction field in %s", raw)
+	}
+
+	var req translator.GeminiRequest
+	if err := json.Unmarshal(geminiJSON, &req); err != nil {
+		t.Fatalf("unmarshal gemini request failed: %v", err)
+	}
+	if len(req.Contents) != 3 {
+		t.Fatalf("expected 3 coalesced contents (user, model, user), got %d", len(req.Contents))
+	}
+	if req.Contents[2].Role != "user" || len(req.Contents[2].Parts) != 2 {
+		t.Fatalf("expected third turn to be user with 2 functionResponse parts, got role=%q parts=%d", req.Contents[2].Role, len(req.Contents[2].Parts))
+	}
+	if req.Contents[2].Parts[0].FunctionResponse == nil || req.Contents[2].Parts[0].FunctionResponse.Name != "alpha" {
+		t.Errorf("expected first functionResponse alpha, got %+v", req.Contents[2].Parts[0].FunctionResponse)
+	}
+	if req.Contents[2].Parts[1].FunctionResponse == nil || req.Contents[2].Parts[1].FunctionResponse.Name != "beta" {
+		t.Errorf("expected second functionResponse beta, got %+v", req.Contents[2].Parts[1].FunctionResponse)
+	}
+}
+
+func TestTranslateGeminiChunkToOpenAI_FinishReasonToolCalls(t *testing.T) {
+	state := &translator.GeminiStreamState{}
+	chunk1 := []byte(`{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"fn_a","args":{"x":1}}}]}}]}`)
+	if _, err := translator.TranslateGeminiChunkToOpenAI(chunk1, state); err != nil {
+		t.Fatalf("chunk1 failed: %v", err)
+	}
+
+	chunk2 := []byte(`{"candidates":[{"finishReason":"STOP"}]}`)
+	out, err := translator.TranslateGeminiChunkToOpenAI(chunk2, state)
+	if err != nil {
+		t.Fatalf("chunk2 failed: %v", err)
+	}
+	if !strings.Contains(string(out), `"finish_reason":"tool_calls"`) {
+		t.Errorf("expected finish_reason tool_calls after functionCall, got %s", string(out))
+	}
+}
+
+func TestTranslateOpenAIToClaudeStreamSession_DeterministicToolBlockOrder(t *testing.T) {
+	for _, sessionKey := range []string{"det-0", "det-1", "det-2", "det-3", "det-4"} {
+		defer translator.ClearStreamState(sessionKey)
+		c1 := []byte(`{"id":"cmpl-1","model":"claude-sonnet-4-6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_0","type":"function","function":{"name":"alpha","arguments":"{\"a\":1}"}},{"index":1,"id":"call_1","type":"function","function":{"name":"beta","arguments":"{\"b\":2}"}}]}}]}`)
+		if _, err := translator.TranslateOpenAIToClaudeStreamSession(sessionKey, c1); err != nil {
+			t.Fatalf("c1 failed: %v", err)
+		}
+		c2 := []byte(`{"id":"cmpl-1","model":"claude-sonnet-4-6","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}`)
+		out, err := translator.TranslateOpenAIToClaudeStreamSession(sessionKey, c2)
+		if err != nil {
+			t.Fatalf("c2 failed: %v", err)
+		}
+		s := string(out)
+		stop0 := strings.Index(s, `"type":"content_block_stop"`)
+		delta1 := strings.Index(s, `"index":1`)
+		if stop0 < 0 || delta1 < 0 || stop0 > delta1 {
+			t.Fatalf("expected tool block 0 closed before block 1 delta on %s, got %s", sessionKey, s)
+		}
+	}
+}
+
 
 
 

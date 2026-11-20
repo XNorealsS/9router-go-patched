@@ -33,7 +33,7 @@ func ForwardGemini(w http.ResponseWriter, req *Request) error {
 	}()
 
 	if req.ProjectID != "" {
-		raw, err := io.ReadAll(resp.Body)
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
 		if err != nil {
 			return fmt.Errorf("read response body: %w", err)
 		}
@@ -53,19 +53,27 @@ func ForwardGemini(w http.ResponseWriter, req *Request) error {
 
 func geminiStream(w http.ResponseWriter, upstream io.Reader) error {
 	flusher := proxy.WriteSSEHeaders(w)
-	firstLine := true
 	state := &translator.GeminiStreamState{}
-	return proxy.ScanStream(upstream, func(chunk []byte) {
-		if firstLine { firstLine = false; return }
+	err := proxy.ScanStream(upstream, func(chunk []byte) {
 		cs := strings.TrimSpace(string(chunk))
-		if cs == "" || cs == "data: [DONE]" { return }
-		if !strings.HasPrefix(cs, "data: ") { return }
-		oc, err := translator.TranslateGeminiChunkToOpenAI([]byte(strings.TrimPrefix(cs, "data: ")), state)
-		if err != nil || oc == nil { return }
+		if cs == "" || cs == "[DONE]" {
+			return
+		}
+		unwrapped := translator.UnwrapAntigravityResponse(chunk)
+		oc, tErr := translator.TranslateGeminiChunkToOpenAI(unwrapped, state)
+		if tErr != nil || oc == nil {
+			return
+		}
 		w.Write(oc)
-		w.Write([]byte("\n\n"))
-		if flusher != nil { flusher.Flush() }
+		if flusher != nil {
+			flusher.Flush()
+		}
 	})
+	w.Write([]byte("data: [DONE]\n\n"))
+	if flusher != nil {
+		flusher.Flush()
+	}
+	return err
 }
 
 func geminiNonStream(w http.ResponseWriter, upstream io.Reader) error {

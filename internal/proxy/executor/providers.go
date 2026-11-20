@@ -39,7 +39,9 @@ func ForwardGrokCLI(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("ForwardGrokCLI: %w", err)
 	}
 	defer resp.Body.Close()
-	return handleCodexStream(w, req, resp.Body)
+	stallReader := proxy.NewStallReader(resp.Body, 0, "grok-cli")
+	defer stallReader.Close()
+	return handleCodexStream(w, req, stallReader)
 }
 
 // ForwardCodex forwards to codex using Responses API format.
@@ -58,7 +60,9 @@ func ForwardCodex(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("ForwardCodex: %w", err)
 	}
 	defer resp.Body.Close()
-	return handleCodexStream(w, req, resp.Body)
+	stallReader := proxy.NewStallReader(resp.Body, 0, "codex")
+	defer stallReader.Close()
+	return handleCodexStream(w, req, stallReader)
 }
 
 // ForwardIflow forwards to iflow with HMAC-SHA256 signature.
@@ -106,7 +110,9 @@ func ForwardIflow(w http.ResponseWriter, req *Request) error {
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		return execSSEStream(w, resp.Body, req)
+		stallReader := proxy.NewStallReader(resp.Body, 0, "iflow")
+		defer stallReader.Close()
+		return execSSEStream(w, stallReader, req)
 	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }
@@ -137,7 +143,9 @@ func ForwardKimchi(w http.ResponseWriter, req *Request) error {
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		return execSSEStream(w, resp.Body, req)
+		stallReader := proxy.NewStallReader(resp.Body, 0, "kimchi")
+		defer stallReader.Close()
+		return execSSEStream(w, stallReader, req)
 	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }
@@ -154,7 +162,9 @@ func ForwardKiro(w http.ResponseWriter, req *Request) error {
 		return fmt.Errorf("ForwardKiro: %w", err)
 	}
 	defer resp.Body.Close()
-	return handleKiroStream(w, req, resp.Body)
+	stallReader := proxy.NewStallReader(resp.Body, 0, "kiro")
+	defer stallReader.Close()
+	return handleKiroStream(w, req, stallReader)
 }
 
 // ForwardAzure forwards to Azure OpenAI with dynamic URL from env vars.
@@ -216,7 +226,9 @@ func ForwardAzure(w http.ResponseWriter, req *Request) error {
 	}
 
 	if req.IsStream {
-		return execSSEStream(w, resp.Body, req)
+		stallReader := proxy.NewStallReader(resp.Body, 0, "azure")
+		defer stallReader.Close()
+		return execSSEStream(w, stallReader, req)
 	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }
@@ -271,7 +283,9 @@ func ForwardCommandcode(w http.ResponseWriter, req *Request) error {
 		return &proxy.UpstreamError{StatusCode: resp.StatusCode, Body: errBody}
 	}
 
-	return handleCommandcodeStream(w, req, resp.Body, oreq.Model)
+	stallReader := proxy.NewStallReader(resp.Body, 0, "commandcode")
+	defer stallReader.Close()
+	return handleCommandcodeStream(w, req, stallReader, oreq.Model)
 }
 
 // ForwardOpencode handles requests for opencode (free tier).
@@ -297,7 +311,9 @@ func ForwardOpencode(w http.ResponseWriter, req *Request) error {
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		return execSSEStream(w, resp.Body, req)
+		stallReader := proxy.NewStallReader(resp.Body, 0, "opencode")
+		defer stallReader.Close()
+		return execSSEStream(w, stallReader, req)
 	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }
@@ -344,7 +360,9 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 		defer resp.Body.Close()
 
 		if req.IsStream {
-			return execSSEStream(w, resp.Body, req)
+			stallReader := proxy.NewStallReader(resp.Body, 0, "opencode-go")
+			defer stallReader.Close()
+			return execSSEStream(w, stallReader, req)
 		}
 		return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 	}
@@ -361,7 +379,9 @@ func ForwardOpencodeGo(w http.ResponseWriter, req *Request) error {
 	defer resp.Body.Close()
 
 	if req.IsStream {
-		return execSSEStream(w, resp.Body, req)
+		stallReader := proxy.NewStallReader(resp.Body, 0, "opencode-go")
+		defer stallReader.Close()
+		return execSSEStream(w, stallReader, req)
 	}
 	return jsonResponse(req.Ctx, w, resp.Body, req.TranslateResp, req.ResponseBuf)
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -496,7 +497,13 @@ func TranslateOpenAIToClaudeStreamSession(sessionKey string, openaiChunk []byte)
 	if choice.FinishReason != nil {
 		stopThinkingBlock(state, &results)
 		stopTextBlock(state, &results)
-		for idx, toolInfo := range state.ToolCalls {
+		toolIndices := make([]int, 0, len(state.ToolCalls))
+		for idx := range state.ToolCalls {
+			toolIndices = append(toolIndices, idx)
+		}
+		sort.Ints(toolIndices)
+		for _, idx := range toolIndices {
+			toolInfo := state.ToolCalls[idx]
 			buffered := state.ToolArgBuffers[idx]
 			sanitized := sanitizeToolArgs(toolInfo.Name, buffered)
 			results = append(results, map[string]any{

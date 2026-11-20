@@ -96,7 +96,7 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		log.Error("antigravity", "loadCodeAssist read failed", "error", err)
 		return "", false, false
@@ -143,21 +143,37 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 	return pid, authFailed, noProject || onboardNoProject
 }
 
+func sleepProbeDelay(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case <-time.After(antigravityProbeDelay):
+		return true
+	}
+}
+
 func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToken, tierID string) (pid string, authFailed, noProject bool) {
 	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil {
+			return "", false, false
+		}
 		payload, err := json.Marshal(map[string]any{
 			"tierId":   tierID,
 			"metadata": lcaMetadata,
 		})
 		if err != nil {
 			log.Error("antigravity", "onboardUser marshal failed", "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 		req, err := http.NewRequestWithContext(ctx, "POST", onboardUserURL, bytes.NewReader(payload))
 		if err != nil {
 			log.Error("antigravity", "onboardUser request failed", "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -168,7 +184,9 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 		clientMetadata, err := json.Marshal(lcaMetadata)
 		if err != nil {
 			log.Error("antigravity", "marshal metadata failed", "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 		req.Header.Set("Client-Metadata", string(clientMetadata))
@@ -176,15 +194,19 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 		resp, err := client.Do(req)
 		if err != nil {
 			log.Error("antigravity", "onboardUser HTTP error", "attempt", attempt, "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		resp.Body.Close()
 		if err != nil {
 			log.Error("antigravity", "onboardUser read failed", "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 
@@ -193,14 +215,18 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 			if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 				return "", true, false
 			}
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 
 		var data map[string]any
 		if err := json.Unmarshal(body, &data); err != nil {
 			log.Error("antigravity", "onboardUser unmarshal failed", "error", err)
-			time.Sleep(antigravityProbeDelay)
+			if !sleepProbeDelay(ctx) {
+				return "", false, false
+			}
 			continue
 		}
 
@@ -213,7 +239,9 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 			}
 			return "", false, true
 		}
-		time.Sleep(antigravityProbeDelay)
+		if !sleepProbeDelay(ctx) {
+			return "", false, false
+		}
 	}
 	return "", false, false
 }

@@ -18,6 +18,7 @@ type GeminiStreamState struct {
 	Usage            *OpenAIUsage
 	FinishReason     string
 	ToolCallCount    int
+	HasToolCalls     bool
 }
 
 // GeminiFileData represents remote or uploaded files referenced by URI.
@@ -102,7 +103,7 @@ type GeminiFunctionDecl struct {
 
 // GeminiRequest is the full Gemini API request body.
 type GeminiRequest struct {
-	SystemInstruction *GeminiContent  `json:"system_instruction,omitempty"`
+	SystemInstruction *GeminiContent  `json:"systemInstruction,omitempty"`
 	Contents          []GeminiContent `json:"contents"`
 	Tools             []GeminiTool    `json:"tools,omitempty"`
 	ToolConfig        any             `json:"toolConfig,omitempty"`
@@ -204,7 +205,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 		case "user":
 			parts := convertContentToGeminiParts(msg.Content)
 			if len(parts) > 0 {
-				req.Contents = append(req.Contents, GeminiContent{Role: "user", Parts: parts})
+				appendGeminiContent(&req.Contents, "user", parts)
 			}
 
 		case "assistant":
@@ -244,7 +245,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 			}
 
 			if len(parts) > 0 {
-				req.Contents = append(req.Contents, GeminiContent{Role: "model", Parts: parts})
+				appendGeminiContent(&req.Contents, "model", parts)
 			}
 
 		case "tool":
@@ -283,7 +284,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 					Response: &GeminiFuncResp{Result: resultValue},
 				},
 			}}
-			req.Contents = append(req.Contents, GeminiContent{Role: "user", Parts: parts})
+			appendGeminiContent(&req.Contents, "user", parts)
 		}
 	}
 
@@ -565,6 +566,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 					fnName := UncloakToolName(part.FunctionCall.Name, nil)
 					tcIdx := state.ToolCallCount
 					state.ToolCallCount++
+					state.HasToolCalls = true
 					id := fmt.Sprintf("call_%s_%d_%d", fnName, tcIdx, time.Now().UnixNano())
 					if part.ThoughtSignature != "" {
 						id += "__ts__" + part.ThoughtSignature
@@ -611,6 +613,9 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 				openAIStop = "stop"
 			default:
 				openAIStop = "stop"
+			}
+			if state.HasToolCalls && openAIStop == "stop" {
+				openAIStop = "tool_calls"
 			}
 
 			inputTokens, outputTokens, cachedTokens := 0, 0, 0
@@ -690,6 +695,19 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 }
 
 // ─── Helpers ───
+
+// appendGeminiContent appends parts to contents, merging consecutive entries with the same role
+// so parallel tool_result messages coalesce into a single Gemini user turn.
+func appendGeminiContent(contents *[]GeminiContent, role string, parts []GeminiPart) {
+	if len(parts) == 0 {
+		return
+	}
+	if n := len(*contents); n > 0 && (*contents)[n-1].Role == role {
+		(*contents)[n-1].Parts = append((*contents)[n-1].Parts, parts...)
+		return
+	}
+	*contents = append(*contents, GeminiContent{Role: role, Parts: parts})
+}
 
 // extractContentString extracts a string from OpenAI message content (string or array).
 func extractContentString(content interface{}) string {

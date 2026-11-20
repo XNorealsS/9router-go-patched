@@ -116,8 +116,6 @@ func jsonResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader
 		if err == nil && usage != nil {
 			if ctx != nil {
 				translator.SetUsage(ctx, usage)
-			} else {
-				translator.SetLastUsage(usage)
 			}
 		}
 		if err != nil || translated == nil {
@@ -137,8 +135,6 @@ func jsonResponse(ctx context.Context, w http.ResponseWriter, upstream io.Reader
 	if usage := translator.ParseResponseUsage(body); usage != nil {
 		if ctx != nil {
 			translator.SetUsage(ctx, usage)
-		} else {
-			translator.SetLastUsage(usage)
 		}
 	}
 
