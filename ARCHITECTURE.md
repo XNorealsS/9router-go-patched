@@ -291,13 +291,13 @@ flowchart TD
     Prov --> Kiro["ForwardKiro\nKiro-specific"]
 ```
 
-## Antigravity Decoy & Anti-Ban Architecture
+## Antigravity Compatibility Envelope & Tool Cloaking
 
 ```mermaid
 flowchart TD
-    In["OpenAI / Claude Request"] --> Strip["StripCompetitorPrompts()\nRemove Zed & Claude SDK Identifiers"]
-    Strip --> Decoy["Antigravity Decoy Cloaking\nInject 21 IDE Tools with _ide suffix"]
-    Decoy --> Validate["Protobuf Safeguard\nEnsure non-empty properties schema"]
+    In["OpenAI / Claude Request"] --> Strip["StripCompetitivePrompts()\nSystemInstruction Only"]
+    Strip --> Decoy["Antigravity Tool Cloaking\nOptional _ide Suffix + 21 Decoy Stubs"]
+    Decoy --> Validate["Protobuf Safeguard\nCleanParametersSchema()"]
     Validate --> Upstream["Antigravity Upstream Gateway\n(daily-cloudcode-pa.googleapis.com)"]
     Upstream --> Stream["Stream Translation\nThought signatures & Tool Call IDs mapped"]
     Stream --> Client["Client Response (SSE / JSON)"]

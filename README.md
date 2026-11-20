@@ -7,34 +7,102 @@ High-performance Go proxy gateway for [9Router](https://github.com/decolua/9rout
 
 > **9Router** is a local AI routing gateway + dashboard. This Go proxy replaces the Next.js `/v1/*` routes for high-throughput LLM traffic, while the [9Router dashboard](https://github.com/decolua/9router) handles management UI (providers, API keys, combos, usage tracking).
 
+## 1. What This Project Does
+
+- Routes OpenAI (`/v1/chat/completions`, `/v1/responses`), Anthropic (`/v1/messages`), and Ollama (`/api/chat`) requests to configured upstream LLM providers.
+- Shares the SQLite WAL database (`data.sqlite`) with the 9Router dashboard for API keys, provider connections, model aliases, combos, usage logs, and proxy pools.
+- Translates requests/responses/SSE streams across OpenAI, Anthropic Claude, and Gemini-native formats, with per-connection model cooldown locks, combo strategies (`fallback`, `round-robin`, `sticky`, `fusion`), and OAuth token refresh.
+- Supports optional token-saving preprocessors (`RTK`, `Caveman`, `Ponytail`), SSE stall detection, egress proxy pools (`http`, `https`, `socks5`), and real-time SSE usage streaming (`/api/usage/stream`).
+
+## 2. What This Project Does Not Do
+
+- Does **not** ship a web dashboard UI (use the 9Router Next.js dashboard or populate SQLite directly).
+- Does **not** implement Antigravity initial OAuth login/authorization (only token refresh and SQLite/API token import).
+- Does **not** guarantee account safety, "anti-ban" protection, unlimited quota, or official Google Antigravity parity.
+- Does **not** execute the 21 declared Antigravity decoy tools (they exist only as compatibility schema stubs).
+- Does **not** run MITM interception on Windows (`internal/mitm/dns.go` supports Linux/macOS `/etc/hosts` only).
+
+## 3. Provider & Antigravity Verification Status
+
+- See [`ANTIGRAVITY_COMPATIBILITY.md`](ANTIGRAVITY_COMPATIBILITY.md) for the complete claim verification matrix.
+- OpenAI-compatible forwarding, SSE streaming, error classification, combo fallback, and SQLite locking are covered by unit and mock-server integration tests in `internal/`.
+- Live upstream provider behavior (including Antigravity `daily-cloudcode-pa.googleapis.com`) is **NOT** live-verified in this repository without operator-supplied credentials and Go test execution (`BLOCKED` in environments without Go or authorized credentials).
+
+## 4. Experimental Features
+
+- **Antigravity Gemini-native compatibility layer** (`_ide` tool cloaking, 21 decoy tool stubs, system-instruction prompt stripping, model synonyms).
+- **Provider-specific reverse-engineered executors**: Qoder COSY signing, CodeBuddy CN/INTL SSE aggregation, Trae SOLO remote agent, Windsurf gRPC-web.
+- **MITM local TLS proxy** (`9router-go mitm enable`) for intercepting local CLI tools on Linux/macOS.
+- **Headroom lifecycle manager & reverse proxy** (`/headroom/*`).
+
+## 5. Capabilities Requiring Authorized Accounts
+
+- All upstream LLM calls (except explicitly configured `NoAuth` public endpoints) require valid API keys or authorized OAuth accounts in `providerConnections`.
+- OAuth token refresh requires operator-configured OAuth client credentials via environment variables (no Google or provider `client_secret` values are embedded in source code).
+
+## 6. How OAuth Works
+
+- `9router-go` reads `accessToken`, `refreshToken`, `expiresAt`, and `projectId` from `providerConnections.data` in SQLite (populated by the 9Router dashboard or `POST /api/oauth/{provider}/import`).
+- When a token expires (within 60s buffer) or upstream returns `401 Unauthorized`, `ChatHandler` acquires a per-connection mutex, refreshes via `oauth.Get(provider)` or `providers.KnownOAuthConfigs[provider]`, and persists the new `accessToken`, `expiresAt`, and any rotated `refreshToken` to SQLite.
+- Kiro social OAuth (`/api/oauth/kiro/social-authorize` and `/social-exchange`) uses PKCE (`S256`) and single-use server-side `state` validation, storing tokens in SQLite without returning raw tokens in HTTP responses.
+
+## 7. How to Deploy Securely
+
+- By default, `9router-go` binds to `127.0.0.1:20128` (`HOST=127.0.0.1`). Keep it bound to loopback when running locally.
+- In containers (`docker-compose.yml`), set `HOST=0.0.0.0` only behind an authenticated reverse proxy or private network.
+- Configure `JWT_SECRET`, `INITIAL_PASSWORD`, and provider `*_OAUTH_CLIENT_ID` / `*_OAUTH_CLIENT_SECRET` via environment variables or a `0600` `.env` file.
+- See [`SECURITY.md`](SECURITY.md) for full security hardening details, SSRF guards, and edge relay secret protection.
+
+## 8. How to Run Tests
+
+```bash
+# Static check and all unit / mock integration tests
+go vet ./...
+go test ./... -count=1
+
+# Race detector
+go test -race ./...
+
+# Live Antigravity validation (requires authorized operator credentials)
+ANTIGRAVITY_OAUTH_CLIENT_ID=... \
+ANTIGRAVITY_OAUTH_CLIENT_SECRET=... \
+ANTIGRAVITY_LIVE_REFRESH_TOKEN=... \
+go test -tags=live_antigravity -v ./internal/handlers/chat -run TestLiveAntigravity
+```
+
+## 9. Known Limitations
+
+- **SQLite single-writer daily aggregation**: `upsertDailyUsage` merges JSON blobs in-process; running multiple `9router-go` processes against one DB file can drop concurrent daily stat increments.
+- **No HTTP rate limiter**: Enforce request rate limiting at your reverse proxy if exposed beyond localhost.
+- **Unverified Antigravity model catalog**: Synonyms such as `gemini-3.5-flash` / `gemini-3.6-flash` / `gemini-3.7-flash` are compatibility mappings and may return upstream 404 depending on account entitlements.
+
+## 10. Security Considerations
+
+- SQLite `providerConnections.data` stores upstream API keys and OAuth tokens in plaintext for dashboard compatibility; the DB file is `chmod 0600` on open (POSIX).
+- Edge relay deployments (`vercel`, `cloudflare`, `deno`) generate a per-deployment `x-relay-secret` and block private/loopback/metadata targets, preventing open-relay abuse.
+- Review [`SECURITY.md`](SECURITY.md) before exposing any endpoint outside localhost.
+
 ### Features
 
-- **32K+ RPS** peak throughput (Go vs Next.js ~500 RPS)
-- **42 MB** memory footprint
+- **High-throughput Go runtime**: CGO-free binary using `chi/v5` and `modernc.org/sqlite` WAL mode (see [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for measured mock-upstream numbers: 5,920 RPS non-stream / 5,437 RPS stream via `hey` with 5ms mock latency, up to 13,216 RPS via native runner with 2ms mock latency; do not extrapolate to live provider latency)
 - **SQLite WAL mode** with non-blocking concurrency (shared with [9Router dashboard](https://github.com/decolua/9router))
 - **OpenAI, Claude, and Gemini native format support** with bidirectional SSE translation
-- **Antigravity Tool Cloaking & Anti-Ban Decoy System**: 21 official IDE decoy tools (`run_command`, `replace_file_content`, etc.) with `_ide` suffix cloaking and protobuf validation safeguards
-- **Antigravity Anti-Competitive Prompt Stripping**: strips competitor identity prompts to prevent synthetic 429 quota exhaustion errors
-- **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active HTTP/HTTPS/SOCKS5 pools + Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path`)
+- **Antigravity Compatibility Layer**: `_ide` tool suffix cloaking, 21 decoy tool stubs, system-instruction prompt stripping, and protobuf schema sanitization (experimental; see [`ANTIGRAVITY_COMPATIBILITY.md`](ANTIGRAVITY_COMPATIBILITY.md))
+- **Dynamic Egress Proxy Pools & Edge Relays**: round-robin IP rotation via active `http`/`https`/`socks5` pools + secret-authenticated Vercel/Cloudflare/Deno edge relays (`x-relay-target` / `x-relay-path` / `x-relay-secret`)
 - **No-Auth Provider Proxy Strategies**: automatic proxy pool routing & rotation for free-tier/public providers (`settings.providerStrategies`)
-- **Realtime SSE Usage Stream (`/api/usage/stream`)**: in-memory in-flight request tracker powering live glowing pulse & marching-ants animations on the Next.js Usage Topology graph
+- **Realtime SSE Usage Stream (`/api/usage/stream`)**: in-memory in-flight request tracker powering live telemetry on the Next.js Usage Topology graph
 - **Snake_case Token Limits (`/v1/models` & `/v1/models/info`)**: exposes `context_length`, `max_completion_tokens`, `max_input_tokens`, and `max_output_tokens`
-- **Gemini 3.7 Flash Model Family**: complete alias and capability mapping for Gemini 3.7 Flash models
-- **Gemini Multimodal Vision & Audio**: support for base64 inline images, remote HTTP/HTTPS `fileData` URLs, and `input_audio`
-- **OpenCode Desktop Fingerprint**: official client headers (`User-Agent: opencode`, `x-opencode-client: desktop`, session/request IDs)
-- **Kimchi Dual Authentication**: seamless API key + OAuth token resolution
-- **Dedicated High-Performance Executors**: Qoder COSY signing (RSA-2048 + AES-128 + MD5), CodeBuddy CN/INTL streaming, Trae SOLO remote agent, Windsurf gRPC-web
-- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge), weight
+- **Gemini Multimodal Vision, Audio & PDF**: support for base64 inline images, audio (`input_audio`), and Claude `document` (PDF) blocks
+- **Dedicated Executors**: Qoder COSY signing, CodeBuddy CN/INTL streaming, Trae SOLO remote agent, Windsurf gRPC-web
+- **Combo strategies**: sticky round-robin, round-robin, fallback, fusion (multi-panel + judge)
 - **Auto-capability-switch**: floats vision/pdf/audio-capable models to front based on request content
 - **Turn & Tool-Calling Stickiness**: locks multi-turn tool calling to the same provider/model to preserve thought signatures
-- **Error classification**: text-based error rules + exponential backoff matching Next.js
-- **Per-connection model locks**: DB-compatible with Next.js dashboard
+- **Error classification & Per-connection model locks**: text/status rules + exponential backoff DB-compatible with Next.js
 - **SSE stall detection**: 6-minute timeout with per-chunk reset
-- **Reactive 401 Unauthorized Auto-Refresh**: auto-refreshes OAuth tokens on 401 and retries once before fallback
-- **Token savers**: RTK input compression, Caveman terse output (`lite`, `full`, `ultra`, `wenyan-ultra`), Ponytail minimal-code bias (`lite`, `full`, `ultra`), auto-synced from SQLite `settings` table
-- **Headroom Lifecycle Proxy**: token compression proxy management & dashboard reverse proxy
+- **Reactive 401 Unauthorized Auto-Refresh**: serialized per-connection OAuth refresh with refresh-token rotation persistence
+- **Token savers**: RTK input compression, Caveman terse output, Ponytail minimal-code bias
+- **Headroom Lifecycle Proxy**: token compression proxy management & SSRF-guarded dashboard reverse proxy
 - **Live Console Logs**: in-process ring buffer + SSE streaming for dashboard console monitoring
-- CGO-free, cross-compile to any platform
 
 ## Architecture
 
@@ -224,20 +292,18 @@ POST /api/chat                 # Ollama compatible format
 
 # Media & Multimodal Endpoints
 POST /v1/images/generations    # Text-to-image generation
-POST /v1/images/understanding  # Image understanding (vision)
 POST /v1/videos/generations    # Video generation
 POST /v1/videos/edits          # Video edits
 POST /v1/videos/extensions     # Video extension
 GET  /v1/videos/{id}           # Video status lookup
 POST /v1/audio/speech          # Text-to-speech (TTS)
 POST /v1/audio/transcriptions  # Speech-to-text (STT)
-POST /v1/audio/music           # Music generation
 GET  /v1/audio/voices          # TTS voices list
 
 # Search, Scrape & Web Fetch
 POST /v1/search                # Web search (provider-selected)
 POST /v1/scrape                # Web scrape
-POST /v1/web/fetch             # Web URL extraction (Jina Reader / Firecrawl)
+POST /v1/web/fetch             # Web URL extraction
 
 # Models & Token Limits
 GET  /v1/models                # List models (with context_length, token limits)
@@ -248,14 +314,16 @@ GET  /v1/models/{kind}         # Models filtered by kind (e.g. tts, image)
 GET  /api/usage/stream         # Live SSE in-flight request tracking & topology animation
 GET  /api/usage/stats          # Realtime usage stats & active concurrency
 
-# OAuth & Authentication
-POST /v1/oauth/authorize       # OAuth authorize
-POST /v1/oauth/refresh         # OAuth refresh
+# OAuth Token Import & Kiro Social Exchange
+POST /api/oauth/{provider}/import     # Import API key or OAuth tokens into SQLite
+GET  /api/oauth/kiro/social-authorize # Kiro Cognito PKCE authorize URL + state
+POST /api/oauth/kiro/social-exchange  # Kiro Cognito PKCE token exchange
+POST /api/oauth/codex/bulk-import     # Bulk Codex access token import
 
 # System & Monitoring
-GET  /health                   # Health check
-GET  /api/version              # Proxy version & update check
-GET  /api/translator/stream    # Dashboard live console log SSE stream
+GET  /health                          # Health check
+GET  /api/version                     # Proxy version & update check
+GET  /translator/console-logs/stream  # Dashboard live console log SSE stream
 ```
 
 ## Docker
@@ -342,28 +410,22 @@ GOOS=windows GOARCH=amd64 go build -o 9router-go.exe ./cmd/9router-go/
 ## Test
 
 ```bash
-go test ./... -v
+go vet ./...
+go test ./... -count=1
+go test -race ./...
 ```
 
-All **655 tests** pass (with `-count=1` to bypass test caching).
+Note: Live Antigravity integration tests (`-tags=live_antigravity`) require operator-supplied OAuth credentials and are skipped unless explicitly configured.
 
 ## Benchmark
 
-Run the native self-contained Go benchmark runner (zero external dependencies):
+Run the native self-contained Go benchmark runner (mock upstream, zero external dependencies):
 
 ```bash
 go run ./benchmark/runner.go
 ```
 
-| Metric | Go Proxy | Legacy Next.js | Speedup |
-|---|---|---|---|
-| Peak RPS (non-stream) | 5,920 (up to 13,216 native) | 505 | **11.7x – 26x** |
-| Peak RPS (stream) | 5,437 | 429 | **12.6x** |
-| Avg latency (c=100) | 6.0ms | 108ms | **18x** |
-| Memory (RSS) | 42.5 MB | 270.9 MB | **6.4x lighter** |
-| Startup | <100ms | 3–5s | **30–50x** |
-
-See [`benchmark/RESULTS.md`](benchmark/RESULTS.md) for full methodology and reproduction steps.
+Note: The figures in [`benchmark/RESULTS.md`](benchmark/RESULTS.md) were recorded on Apple Silicon against a local mock upstream (2–5ms artificial delay) and measure proxy overhead only, not end-to-end live provider latency.
 
 ## Roadmap
 

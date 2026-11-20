@@ -1,5 +1,25 @@
 # Changelog
 
+## [v1.8.5] — 2026-11-20 (Security & Protocol Remediation)
+
+### 🔒 Security Hardening
+- **Removed Hardcoded OAuth Secrets**: Removed embedded Google (`antigravity`, `gemini-cli`), `iflow`, `claude`, and `xai` OAuth client credentials in favor of explicit operator environment variables. (`internal/providers/oauth.go`, `internal/proxy/oauth/`)
+- **Kiro Social OAuth State & Token Redaction**: Added server-side single-use `state` + PKCE `code_verifier` validation, URL-encoded token exchange, and removed raw OAuth tokens from HTTP responses. (`internal/handlers/oauth/oauth.go`)
+- **Default Loopback Binding & Slowloris Timeout**: Default listen address changed from `:20128` to `127.0.0.1:20128` (override via `HOST=0.0.0.0` in Docker) with `ReadHeaderTimeout: 15s`. (`cmd/9router-go/main.go`, `docker-compose.yml`)
+- **Edge Relay & Headroom SSRF Hardening**: Added per-deployment `x-relay-secret` authentication and private/metadata target blocking to Vercel/Cloudflare/Deno relay templates; added `AssertPublicURL` check to `HandleHeadroomProxy`. (`internal/handlers/media/deploy.go`, `internal/handlers/media/headroom.go`)
+- **Media Header & DB JSON-Path Fixes**: Stripped client auth/cookie/hop-by-hop headers in `MediaHandler`; fixed JSON key quoting in `clearSpecificModelLock` and `clearConnectionModelLocks` for dotted model names. (`internal/handlers/media/media.go`, `internal/db/accounts.go`)
+
+### 🐛 Protocol, Streaming & Concurrency Fixes
+- **Antigravity Project ID Integrity**: Removed fabricated `cloudcode-pa-<hex>` fallback project IDs; returns an explicit onboarding error when no real project ID exists. (`internal/handlers/chat/gemini_handler.go`)
+- **Per-Connection OAuth Refresh Locking & Rotation**: Serialized concurrent refreshes per connection ID, preserved rotated `refreshToken` values, and preserved existing `projectId`. (`internal/handlers/chat/gemini_handler.go`, `internal/proxy/oauth/`)
+- **Proxy Pool Routing for Antigravity/Gemini/Media**: Passed per-connection `httpClient` into `forwardGeminiNativeRequestWithClient`, `forwardRequestWithClient`, and media endpoints; added `https`/`socks5`/`socks5h` proxy pool support with transport caching and `strictProxy` fail-closed behavior. (`internal/handlers/chat/connections.go`, `internal/handlers/chat/fallback.go`)
+- **Gemini SSE & Tool Calling Fixes**: Fixed missing `data: [DONE]\n\n` terminator, removed duplicate blank lines, unwrapped non-SSE fallback responses, and incremented tool call `index` across multi-tool chunks. (`internal/handlers/chat/gemini_handler.go`, `internal/translator/gemini.go`)
+- **Prompt Integrity & Multimodal PDF Support**: Scoped `StripCompetitivePrompts` to `SystemInstruction` only; added Anthropic `document` (PDF) block translation and `PDF: true` capabilities. (`internal/translator/antigravity.go`, `internal/translator/request.go`, `internal/providers/capabilities.go`)
+- **MITM Hosts Cleanup**: Fixed `RemoveHostsEntries` `sed` range deletion so `127.0.0.1` entries are cleanly removed on `mitm disable`. (`internal/mitm/dns.go`)
+
+### 📚 Documentation
+- Added [`ANTIGRAVITY_COMPATIBILITY.md`](ANTIGRAVITY_COMPATIBILITY.md) claim verification matrix and [`SECURITY.md`](SECURITY.md); updated `README.md`, `ARCHITECTURE.md`, and `TECHNICAL_DEBT.md`.
+
 ## [v1.8.4] — 2026-08-14
 
 ### 🐛 Bug Fixes & Resilience

@@ -18,11 +18,16 @@ Documented technical debt, concurrency risks, resource leaks, and planned archit
 
 ## 🟡 Open Medium Items (Priority 3: Code Robustness & Performance)
 
-*No open medium items.*
+- **DNS Rebinding TOCTOU in `AssertPublicURL`**: `internal/handlerutil/ssrf.go` performs `net.LookupIP` prior to `http.Client.Do` instead of enforcing IP checks inside `net.Dialer.Control`.
+- **Single-Writer Daily Usage Aggregation**: `upsertDailyUsage` (`internal/handlers/chat/usage.go`) merges JSON blobs in-memory under a process-local mutex; multi-process deployments against one SQLite file can drop concurrent increments.
+- **Plaintext Upstream Credentials in SQLite**: `providerConnections.data` stores API keys and OAuth tokens in cleartext JSON for compatibility with the shared Next.js dashboard (DB file permissions are restricted to `0600` on POSIX).
+- **Unvalidated Live Antigravity Execution**: Go test execution and live Antigravity protocol validation remain `BLOCKED` when Go or authorized Google/Antigravity credentials are absent (see `ANTIGRAVITY_COMPATIBILITY.md`).
 
 ---
 
 ## ✅ Resolved Items
+
+- **Audit Remediation (v1.8.5)**: Removed hardcoded Google/iflow/Claude/xAI OAuth client credentials; removed fabricated Antigravity fallback `projectID`; serialized concurrent OAuth token refreshes per connection and persisted rotated `refreshToken`s; fixed Antigravity proxy pool `httpClient` bypass and added `https`/`socks5` + `strictProxy` fail-closed support; fixed Gemini SSE `[DONE]` termination and multi-tool-call streaming indices; scoped `StripCompetitivePrompts` to `SystemInstruction`; added Anthropic `document` (PDF) translation; added Kiro OAuth server-side state validation and redacted tokens from HTTP responses; bound server to `127.0.0.1` by default with `ReadHeaderTimeout`; added SSRF guard to `HandleHeadroomProxy`; secured Edge Relay templates with per-deployment `x-relay-secret` and target host guards; fixed `clearSpecificModelLock`/`clearConnectionModelLocks` JSON key quoting; fixed `MediaHandler` header sanitization and URL rewriting; fixed MITM `RemoveHostsEntries` range deletion and JSON error escaping.
 
 - **CodeBuddy OAuth Configuration**: `codebuddy-cn` and `codebuddy-intl` OAuth token refresh configuration registered in `KnownOAuthConfigs` (`internal/providers/oauth.go`), alongside its dedicated stream executor (`internal/proxy/executor/codebuddy.go`).
 - **Realtime SSE Usage Stream & Topology Animation**: Added `internal/usagetracker` with in-memory active request tracking and SSE broadcast handlers (`/api/usage/stream` & `/usage/stream`) matching Next.js dashboard topology animation requirements.
