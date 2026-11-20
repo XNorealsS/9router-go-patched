@@ -137,6 +137,7 @@ func runServer(cCtx *cli.Context) error {
 	}
 
 	cfg := config.LoadConfig()
+	log.Printf("[config] database=%s", cfg.DatabasePath)
 
 	if err := db.InitGlobalDatabase(cfg.DatabasePath); err != nil {
 		return fmt.Errorf("database init: %w", err)

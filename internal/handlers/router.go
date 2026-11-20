@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -128,7 +129,11 @@ func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverCon
 			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				if middleware.ExtractApiKey(req) == "" {
 					switch req.URL.Path {
-					case "/api/version", "/api/version/check", "/api/usage/stream", "/api/usage/stats":
+					case "/api/version", "/api/version/check", "/api/version/update", "/api/usage/stream", "/api/usage/stats":
+						dashboardProxy.ServeHTTP(w, req)
+						return
+					}
+					if strings.HasPrefix(req.URL.Path, "/api/oauth/") {
 						dashboardProxy.ServeHTTP(w, req)
 						return
 					}

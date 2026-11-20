@@ -17,6 +17,21 @@ import (
 const gatewayThemeStyleTag = `<style id="gw-red-theme">
 :root{--color-brand-50:#fef2f2!important;--color-brand-100:#fee2e2!important;--color-brand-200:#fecaca!important;--color-brand-300:#fca5a5!important;--color-brand-400:#f87171!important;--color-brand-500:#dc2626!important;--color-brand-600:#b91c1c!important;--color-brand-700:#991b1b!important;--color-brand-800:#7f1d1d!important;--color-brand-900:#450a0a!important;--color-orange-200:#fecaca!important;--color-orange-400:#f87171!important;--color-orange-500:#dc2626!important;--color-orange-700:#991b1b!important;--color-orange-900:#450a0a!important;--color-primary:#dc2626!important;--color-primary-hover:#b91c1c!important;--color-accent:#dc2626!important;--color-bg:#fafafa!important;--color-bg-alt:#f4f4f5!important;--color-surface:#ffffff!important;--color-surface-2:#f4f4f5!important;--color-surface-3:#e4e4e7!important;--color-sidebar:#ffffff!important;--color-border:#e4e4e7!important;--color-border-subtle:#f4f4f5!important;--color-text:#09090b!important;--color-text-main:#09090b!important;--color-text-muted:#52525b!important;--color-text-subtle:#71717a!important;--radius-brand:6px!important;--radius-brand-lg:8px!important;--shadow-warm:0 2px 10px -2px rgba(220,38,38,.18)!important;--shadow-focus:0 0 0 2px rgba(220,38,38,.35)!important}
 .dark{--color-brand-50:#fef2f2!important;--color-brand-100:#fee2e2!important;--color-brand-200:#fecaca!important;--color-brand-300:#fca5a5!important;--color-brand-400:#f87171!important;--color-brand-500:#dc2626!important;--color-brand-600:#b91c1c!important;--color-brand-700:#991b1b!important;--color-brand-800:#7f1d1d!important;--color-brand-900:#450a0a!important;--color-orange-200:#fecaca!important;--color-orange-400:#f87171!important;--color-orange-500:#dc2626!important;--color-orange-700:#991b1b!important;--color-orange-900:#450a0a!important;--color-primary:#dc2626!important;--color-primary-hover:#b91c1c!important;--color-accent:#dc2626!important;--color-bg:#09090b!important;--color-bg-alt:#0f0f12!important;--color-surface:#121216!important;--color-surface-2:#18181d!important;--color-surface-3:#222228!important;--color-sidebar:#09090b!important;--color-border:#27272a!important;--color-border-subtle:#18181b!important;--color-text:#fafafa!important;--color-text-main:#fafafa!important;--color-text-muted:#a1a1aa!important;--color-text-subtle:#71717a!important;--shadow-warm:0 2px 10px -2px rgba(220,38,38,.25)!important;--shadow-focus:0 0 0 2px rgba(220,38,38,.4)!important}
+.bg-\[\#f97815\]{background-color:#dc2626!important}
+.bg-\[\#f97815\]\/10{background-color:rgba(220,38,38,.12)!important}
+.bg-\[\#f97815\]\/12{background-color:rgba(220,38,38,.14)!important}
+.bg-\[\#f97815\]\/20{background-color:rgba(220,38,38,.20)!important}
+.hover\:bg-\[\#e0650a\]:hover{background-color:#b91c1c!important}
+.text-\[\#f97815\]{color:#dc2626!important}
+.border-\[\#f97815\]{border-color:#dc2626!important}
+.border-\[\#f97815\]\/30{border-color:rgba(220,38,38,.35)!important}
+.hover\:border-\[\#f97815\]\/50:hover{border-color:rgba(220,38,38,.55)!important}
+.from-\[\#f97815\]{--tw-gradient-from:#dc2626!important}
+.from-\[\#f97815\]\/5{--tw-gradient-from:rgba(220,38,38,.06)!important}
+.via-\[\#f97815\]{--tw-gradient-via:#dc2626!important}
+.ring-\[\#f97815\]\/50{--tw-ring-color:rgba(220,38,38,.5)!important}
+.selection\:bg-\[\#f97815\]::selection,.selection\:bg-\[\#f97815\] ::selection{background-color:#dc2626!important;color:#ffffff!important}
+stop[stop-color*="#f9" i],stop[stop-color*="#e5" i],stop[stop-color*="#fe" i],stop[stop-color*="#ff6" i]{stop-color:#dc2626!important}
 #gw-console-link{position:fixed;right:16px;bottom:16px;z-index:9999;display:inline-flex;align-items:center;gap:8px;padding:8px 14px;background:#09090b;color:#fafafa;border:1px solid #dc2626;border-radius:4px;font:600 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;text-decoration:none;letter-spacing:.02em;transition:background-color .15s,border-color .15s}
 #gw-console-link:hover{background:#dc2626;color:#ffffff}
 #gw-console-dot{width:7px;height:7px;border-radius:999px;background:#dc2626;display:inline-block}
