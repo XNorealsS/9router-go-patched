@@ -10,9 +10,8 @@ services:
       - HOST=0.0.0.0
       - PORT=20128
       - DATA_DIR=/data
-      # Set these in production (.env or compose overrides):
-      # - INITIAL_PASSWORD=change-me
-      # - JWT_SECRET=change-me-to-a-long-random-secret
+      - INITIAL_PASSWORD=${INITIAL_PASSWORD:?set INITIAL_PASSWORD in .env}
+      # Optional: Google OAuth client for Go-side Antigravity token refresh.
       # - ANTIGRAVITY_OAUTH_CLIENT_ID=
       # - ANTIGRAVITY_OAUTH_CLIENT_SECRET=
     restart: unless-stopped
