@@ -1,0 +1,16 @@
+[Unit]
+Description=9Router Unified Gateway (Go Proxy + Next.js Dashboard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/9router-gateway
+EnvironmentFile=-/opt/9router-gateway/.env
+ExecStart=/opt/9router-gateway/bin/start-gateway.sh
+Restart=always
+RestartSec=3
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

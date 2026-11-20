@@ -1,6 +1,7 @@
 # Build artifacts
 /9router-go
 /9router-go-*
+dist/
 
 # Test binaries
 *.test

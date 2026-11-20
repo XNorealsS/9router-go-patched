@@ -108,6 +108,34 @@ func SetupRoutes(r interface {
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and
 // API-key protected routes (all engine + admin routes) on the chi router.
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
+	SetupServerRouterWithDashboard(r, repo, ts, nil)
+}
+
+// SetupServerRouterWithDashboard configures unified 1-gateway routing: Go handles
+// /health, /api/hello, and API-key authenticated proxy/admin routes, while
+// unmatched UI/management routes (and unauthenticated browser telemetry/version
+// calls when a dashboard proxy is present) forward to dashboardProxy.
+func SetupServerRouterWithDashboard(r chi.Router, repo *db.Repo, ts *TokenSaverConfig, dashboardProxy http.Handler) {
+	if dashboardProxy != nil {
+		// In unified 1-gateway mode, browser sessions on /dashboard request these
+		// routes using Next.js cookies rather than an API key header. Only handle
+		// them in Go when the caller presents an API key; otherwise delegate to Next.js.
+		dashboardOverlapFallback := func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if middleware.ExtractApiKey(req) == "" {
+					switch req.URL.Path {
+					case "/api/version", "/api/version/check", "/api/usage/stream", "/api/usage/stats":
+						dashboardProxy.ServeHTTP(w, req)
+						return
+					}
+				}
+				next.ServeHTTP(w, req)
+			})
+		}
+		r.Use(dashboardOverlapFallback)
+		r.NotFound(dashboardProxy.ServeHTTP)
+	}
+
 	// Public (unauthenticated) endpoints
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)

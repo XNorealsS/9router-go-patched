@@ -187,7 +187,15 @@ func runServer(cCtx *cli.Context) error {
 
 	r.Use(middleware.RequestLogger)
 
-	handlers.SetupServerRouter(r, repo, ts)
+	dashURL := os.Getenv("DASHBOARD_URL")
+	dashProxy, err := handlers.NewDashboardProxy(dashURL)
+	if err != nil {
+		return err
+	}
+	if dashProxy != nil {
+		log.Printf("[gateway] unified mode enabled: dashboard fallback -> %s", dashURL)
+	}
+	handlers.SetupServerRouterWithDashboard(r, repo, ts, dashProxy)
 
 	host := os.Getenv("HOST")
 	if host == "" {

@@ -1,7 +1,7 @@
 services:
-  9router-go:
+  9router-gateway:
     build: .
-    container_name: 9router-go
+    container_name: 9router-gateway
     ports:
       - "20128:20128"
     volumes:
@@ -10,12 +10,13 @@ services:
       - HOST=0.0.0.0
       - PORT=20128
       - DATA_DIR=/data
-      # Token saver toggles (all default off except RTK):
-      # - RTK_ENABLED=true
-      # - CAVEMAN_ENABLED=false
-      # - PONYTAIL_ENABLED=false
-      # Or use DB_PATH for custom SQLite location:
-      # - DB_PATH=/data/custom/data.sqlite
+      - DASHBOARD_PORT=3000
+      - DASHBOARD_URL=http://127.0.0.1:3000
+      # Set these in production (.env or compose overrides):
+      # - INITIAL_PASSWORD=change-me
+      # - JWT_SECRET=change-me-to-a-long-random-secret
+      # - ANTIGRAVITY_OAUTH_CLIENT_ID=
+      # - ANTIGRAVITY_OAUTH_CLIENT_SECRET=
     restart: unless-stopped
 
 volumes:
