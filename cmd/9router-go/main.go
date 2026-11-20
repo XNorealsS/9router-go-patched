@@ -195,7 +195,6 @@ func runServer(cCtx *cli.Context) error {
 	if dashProxy != nil {
 		log.Printf("[gateway] unified mode enabled: dashboard fallback -> %s", dashURL)
 	}
-	handlers.SetupServerRouterWithDashboard(r, repo, ts, dashProxy)
 
 	host := os.Getenv("HOST")
 	if host == "" {
@@ -205,6 +204,12 @@ func runServer(cCtx *cli.Context) error {
 		log.Printf("[security] WARNING: binding non-loopback host %q without CREDENTIAL_ENCRYPTION_KEY; stored SQLite provider credentials remain plaintext", host)
 	}
 	addr := fmt.Sprintf("%s:%d", host, cfg.Port)
+	handlers.SetupServerRouterWithGateway(r, repo, ts, dashProxy, handlers.GatewayRuntimeInfo{
+		StartTime:    time.Now(),
+		ListenAddr:   addr,
+		DashboardURL: dashURL,
+		DatabasePath: cfg.DatabasePath,
+	})
 	log.Printf("9Router Go Proxy (%s) starting on %s", updater.CurrentVersion, addr)
 
 	signals := make(chan os.Signal, 2)

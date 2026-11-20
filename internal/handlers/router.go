@@ -111,11 +111,15 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	SetupServerRouterWithDashboard(r, repo, ts, nil)
 }
 
-// SetupServerRouterWithDashboard configures unified 1-gateway routing: Go handles
-// /health, /api/hello, and API-key authenticated proxy/admin routes, while
-// unmatched UI/management routes (and unauthenticated browser telemetry/version
-// calls when a dashboard proxy is present) forward to dashboardProxy.
+// SetupServerRouterWithDashboard configures unified 1-gateway routing using default runtime info.
 func SetupServerRouterWithDashboard(r chi.Router, repo *db.Repo, ts *TokenSaverConfig, dashboardProxy http.Handler) {
+	SetupServerRouterWithGateway(r, repo, ts, dashboardProxy, GatewayRuntimeInfo{})
+}
+
+// SetupServerRouterWithGateway configures unified 1-gateway routing: Go handles
+// /health, /api/hello, /gateway HTML shell, and API-key authenticated proxy/gateway
+// routes, while unmatched UI/management routes forward to dashboardProxy.
+func SetupServerRouterWithGateway(r chi.Router, repo *db.Repo, ts *TokenSaverConfig, dashboardProxy http.Handler, info GatewayRuntimeInfo) {
 	if dashboardProxy != nil {
 		// In unified 1-gateway mode, browser sessions on /dashboard request these
 		// routes using Next.js cookies rather than an API key header. Only handle
@@ -150,10 +154,20 @@ func SetupServerRouterWithDashboard(r chi.Router, repo *db.Repo, ts *TokenSaverC
 		}
 	})
 
-	// API-key protected domain routes (includes /admin/health/reset so health
-	// state cannot be reset by an unauthenticated caller — open-source hardening)
+	r.Get("/gateway", HandlePanelPage)
+
+	gwPanel := NewGatewayPanelHandler(repo, ts, info)
+
+	// API-key protected domain routes (includes /admin/health/reset and /api/gateway/*)
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.RequireApiKey(repo))
+
+		r.Get("/api/gateway/system", gwPanel.HandleSystemStatus)
+		r.Post("/api/gateway/toggles", gwPanel.HandleToggles)
+		r.Post("/api/gateway/health/reset", gwPanel.HandleHealthReset)
+		r.Post("/api/gateway/update-check", gwPanel.HandleUpdateCheck)
+		r.Get("/api/gateway/logs", gwPanel.HandleLogsGet)
+		r.Delete("/api/gateway/logs", gwPanel.HandleLogsDelete)
 
 		// Health reset endpoint — dashboard calls this via headroom proxy
 		r.Post("/admin/health/reset", func(w http.ResponseWriter, r *http.Request) {

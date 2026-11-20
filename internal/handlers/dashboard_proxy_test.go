@@ -16,7 +16,7 @@ func TestSetupServerRouterWithDashboard_UnifiedGateway(t *testing.T) {
 		switch r.URL.Path {
 		case "/dashboard":
 			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte("<html>9Router Dashboard</html>"))
+			_, _ = w.Write([]byte("<html><head></head><body><div>9Router Dashboard</div></body></html>"))
 		case "/api/version":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"source":"nextjs-dashboard"}`))
@@ -45,11 +45,14 @@ func TestSetupServerRouterWithDashboard_UnifiedGateway(t *testing.T) {
 		t.Fatalf("expected Go /health 200, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// 2. Dashboard HTML route falls through to DASHBOARD_URL.
+	// 2. Dashboard HTML route falls through to DASHBOARD_URL and receives Red/Black/White theme injection.
 	rec = httptest.NewRecorder()
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "9Router Dashboard") {
 		t.Fatalf("expected proxied /dashboard 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `id="gw-red-theme"`) || !strings.Contains(rec.Body.String(), `href="/gateway"`) {
+		t.Fatalf("expected red theme override and /gateway nav link injected, got %s", rec.Body.String())
 	}
 
 	// 3. Browser call to /api/version without API key goes to dashboard instead of 401.
