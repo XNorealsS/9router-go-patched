@@ -183,15 +183,20 @@ func runServer(cCtx *cli.Context) error {
 
 	handlers.SetupServerRouter(r, repo, ts)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
-	log.Printf("9Router Go Proxy (%s) starting on port %d", updater.CurrentVersion, cfg.Port)
+	host := os.Getenv("HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addr := fmt.Sprintf("%s:%d", host, cfg.Port)
+	log.Printf("9Router Go Proxy (%s) starting on %s", updater.CurrentVersion, addr)
 
 	signals := make(chan os.Signal, 2)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 
 	server := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 15 * time.Second,
 	}
 
 	go func() {

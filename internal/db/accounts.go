@@ -179,7 +179,7 @@ func (r *Repo) clearProviderModelLocks(provider string) error {
 }
 
 func (r *Repo) clearSpecificModelLock(provider, model string) error {
-	key := "$." + modelLockPrefix + model
+	key := modelLockDataKey(model)
 	rows, err := r.db.Query("SELECT id, data FROM providerConnections WHERE provider = ?", provider)
 	if err != nil {
 		return err
@@ -214,7 +214,7 @@ func (r *Repo) clearConnectionModelLocks(id, data string) error {
 	args := make([]any, 0, len(fields)*2+2)
 	for _, f := range fields {
 		q += ", ?, json('null')"
-		args = append(args, "$."+f)
+		args = append(args, "$.\""+f+"\"")
 	}
 	q += ", '$.backoffLevel', 0), updatedAt = datetime('now') WHERE id = ?"
 	args = append(args, id)

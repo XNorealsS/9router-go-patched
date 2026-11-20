@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -41,10 +42,13 @@ type HeadroomHandler struct {
 
 // NewHeadroomHandler creates a HeadroomHandler bound to the app data dir.
 func NewHeadroomHandler(repo *db.Repo) *HeadroomHandler {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
 	return &HeadroomHandler{
 		Repo:    repo,
 		DataDir: config.ResolveDataDir(),
 		Client: &http.Client{
+			Transport: transport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse // redirect: "manual"
 			},
@@ -205,10 +209,18 @@ func (h *HeadroomHandler) HandleHeadroomExtras(w http.ResponseWriter, r *http.Re
 
 // HandleHeadroomProxy reverse-proxies the Headroom dashboard (all methods).
 func (h *HeadroomHandler) HandleHeadroomProxy(w http.ResponseWriter, r *http.Request) {
-	target, err := url.Parse(h.headroomURL())
+	rawURL := h.headroomURL()
+	target, err := url.Parse(rawURL)
 	if err != nil || (target.Scheme != "http" && target.Scheme != "https") {
 		writeHeadroomError(w, http.StatusInternalServerError, "Headroom URL must use http or https", "")
 		return
+	}
+	// If Headroom points off-loopback, enforce SSRF checks so private/metadata IPs cannot be targeted.
+	if !headroom.IsLoopbackHeadroomUrl(rawURL) {
+		if err := handlerutil.AssertPublicURL(rawURL); err != nil {
+			writeHeadroomError(w, http.StatusForbidden, "Headroom URL blocked by SSRF policy", "SSRF_BLOCKED")
+			return
+		}
 	}
 	sub := chi.URLParam(r, "*")
 	target.Path = "/" + strings.TrimLeft(sub, "/")
@@ -250,7 +262,7 @@ func (h *HeadroomHandler) HandleHeadroomProxy(w http.ResponseWriter, r *http.Req
 	defer resp.Body.Close()
 
 	if sub == "dashboard" && strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
-		html, err := io.ReadAll(resp.Body)
+		html, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20))
 		if err != nil {
 			writeHeadroomError(w, http.StatusInternalServerError, err.Error(), "")
 			return

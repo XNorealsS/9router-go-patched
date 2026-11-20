@@ -96,8 +96,9 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	req.Header.Set(constants.HeaderContentType, constants.ContentTypeJSON)
 	handlerutil.SetAuthHeader(req, apiKey, providerCfg.AuthHeader, providerCfg.AuthScheme)
 
+	client := h.ChatH.GetClientForConnection(connData)
 	start := time.Now()
-	resp, err := h.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
 		return
@@ -280,7 +281,8 @@ func (h *MediaHandler) forwardMiMoSpeech(w http.ResponseWriter, r *http.Request,
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
 
-	resp, err := h.Client.Do(upstreamReq)
+	client := h.ChatH.GetClientForConnection(connData)
+	resp, err := client.Do(upstreamReq)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
 		return
@@ -476,15 +478,13 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			}
 
 			finalBody := handlerutil.UpdateModelInBody(body, subInfo.Model)
-			targetURL := strings.TrimRight(providerCfg.BaseURL, "/") + endpoint
+			targetURL := buildMediaTargetURL(providerCfg.BaseURL, endpoint)
 			req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(finalBody))
 			if err != nil {
 				lastErr = err.Error()
 				continue
 			}
-			for k, v := range r.Header {
-				req.Header[k] = v
-			}
+			copySanitizedMediaReqHeaders(req.Header, r.Header)
 			handlerutil.SetAuthHeader(req, apiKey, providerCfg.AuthHeader, providerCfg.AuthScheme)
 			client := h.ChatH.GetClientForConnection(connData)
 			resp, err := client.Do(req)
@@ -498,9 +498,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 				continue
 			}
 			defer resp.Body.Close()
-			for k, v := range resp.Header {
-				w.Header()[k] = v
-			}
+			copySanitizedMediaRespHeaders(w.Header(), resp.Header)
 			w.WriteHeader(resp.StatusCode)
 			io.Copy(w, resp.Body)
 			h.Repo.UpdateConnectionLastUsed(conn.ID)
@@ -529,7 +527,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	finalBody := handlerutil.UpdateModelInBody(body, modelInfo.Model)
-	targetURL := strings.TrimRight(providerCfg.BaseURL, "/") + endpoint
+	targetURL := buildMediaTargetURL(providerCfg.BaseURL, endpoint)
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(finalBody))
 	if err != nil {
 		log.Error("media", "create request failed", "endpoint", endpoint, "error", err)
@@ -537,9 +535,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	for k, v := range r.Header {
-		req.Header[k] = v
-	}
+	copySanitizedMediaReqHeaders(req.Header, r.Header)
 
 	handlerutil.SetAuthHeader(req, apiKey, providerCfg.AuthHeader, providerCfg.AuthScheme)
 	client := h.ChatH.GetClientForConnection(connData)
@@ -552,9 +548,7 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	}
 	defer resp.Body.Close()
 
-	for k, v := range resp.Header {
-		w.Header()[k] = v
-	}
+	copySanitizedMediaRespHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 
@@ -569,6 +563,42 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 			Endpoint:     endpoint,
 		}
 		h.ChatH.LogUsage(logInfo, nil, latencyMs, body, nil)
+	}
+}
+
+func buildMediaTargetURL(baseURL, endpoint string) string {
+	trimmed := strings.TrimRight(baseURL, "/")
+	if strings.HasSuffix(trimmed, "/chat/completions") {
+		base := strings.TrimSuffix(trimmed, "/chat/completions")
+		if strings.HasPrefix(endpoint, "/v1/") && strings.HasSuffix(base, "/v1") {
+			return strings.TrimSuffix(base, "/v1") + endpoint
+		}
+		return base + endpoint
+	}
+	return trimmed + endpoint
+}
+
+func copySanitizedMediaReqHeaders(dst, src http.Header) {
+	for k, vv := range src {
+		lk := strings.ToLower(k)
+		if hopByHopHeaders[lk] || lk == "host" || lk == "content-length" || lk == "authorization" || lk == "x-api-key" || lk == "cookie" {
+			continue
+		}
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
+	}
+}
+
+func copySanitizedMediaRespHeaders(dst, src http.Header) {
+	for k, vv := range src {
+		lk := strings.ToLower(k)
+		if hopByHopHeaders[lk] || lk == "content-length" {
+			continue
+		}
+		for _, v := range vv {
+			dst.Add(k, v)
+		}
 	}
 }
 

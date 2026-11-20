@@ -3,6 +3,8 @@ package media
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,128 +26,122 @@ const (
 	maxBodyLen = 1 << 20 // 1 MiB cap on platform API response bodies
 )
 
-// Relay function source code deployed to Vercel.
-// Forwards requests to target URL specified in x-relay-target header.
-const vercelRelayCode = `
-export const config = { runtime: "edge" };
+func newRelaySecret() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
 
+const relayGuardJS = `
+const RELAY_SECRET = %q;
+function isAllowedRelayTarget(rawTarget) {
+  let u;
+  try { u = new URL(rawTarget); } catch { return false; }
+  if (u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".localhost")) return false;
+  if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return false;
+  if (host === "::1" || host === "[::1]" || host.startsWith("[fe80:") || host.startsWith("[fc") || host.startsWith("[fd")) return false;
+  return true;
+}
+`
+
+func renderVercelRelayCode(secret string) string {
+	return fmt.Sprintf(`export const config = { runtime: "edge" };
+%s
 export default async function handler(req) {
+  if (!RELAY_SECRET || req.headers.get("x-relay-secret") !== RELAY_SECRET) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+  }
   const target = req.headers.get("x-relay-target");
   const relayPath = req.headers.get("x-relay-path") || "/";
-  if (!target) {
-    return new Response(JSON.stringify({ error: "Missing x-relay-target header" }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+  if (!target || !isAllowedRelayTarget(target)) {
+    return new Response(JSON.stringify({ error: "Invalid or disallowed x-relay-target" }), { status: 400, headers: { "content-type": "application/json" } });
   }
-
   const targetUrl = target.replace(/\/$/, "") + relayPath;
-
   const headers = new Headers(req.headers);
   headers.delete("x-relay-target");
   headers.delete("x-relay-path");
+  headers.delete("x-relay-secret");
   headers.delete("host");
-
   const response = await fetch(targetUrl, {
     method: req.method,
     headers,
     body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
     duplex: "half",
   });
-
-  return new Response(response.body, {
-    status: response.status,
-    headers: response.headers,
-  });
+  return new Response(response.body, { status: response.status, headers: response.headers });
 }
-`
+`, fmt.Sprintf(relayGuardJS, secret))
+}
 
-// Relay worker source code deployed to Cloudflare.
-const cloudflareRelayCode = `
+func renderCloudflareRelayCode(secret string) string {
+	return fmt.Sprintf(`%s
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request) {
+    if (!RELAY_SECRET || request.headers.get("x-relay-secret") !== RELAY_SECRET) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+    }
     const target = request.headers.get("x-relay-target");
     const relayPath = request.headers.get("x-relay-path") || "/";
-
-    if (!target) {
-      return new Response(JSON.stringify({ error: "Missing x-relay-target header" }), {
-        status: 400,
-        headers: { "content-type": "application/json" },
-      });
+    if (!target || !isAllowedRelayTarget(target)) {
+      return new Response(JSON.stringify({ error: "Invalid or disallowed x-relay-target" }), { status: 400, headers: { "content-type": "application/json" } });
     }
-
     const targetUrl = target.replace(/\/$/, "") + relayPath;
-    const newRequestInit = {
-      method: request.method,
-      headers: new Headers(request.headers),
-    };
-
+    const headers = new Headers(request.headers);
+    headers.delete("x-relay-target");
+    headers.delete("x-relay-path");
+    headers.delete("x-relay-secret");
+    headers.delete("host");
+    const init = { method: request.method, headers };
     if (request.method !== "GET" && request.method !== "HEAD") {
-      newRequestInit.body = request.body;
-      newRequestInit.duplex = "half";
+      init.body = request.body;
+      init.duplex = "half";
     }
-
-    newRequestInit.headers.delete("x-relay-target");
-    newRequestInit.headers.delete("x-relay-path");
-    newRequestInit.headers.delete("host");
-
     try {
-      const response = await fetch(targetUrl, newRequestInit);
-      return new Response(response.body, {
-        status: response.status,
-        headers: response.headers,
-      });
+      const response = await fetch(targetUrl, init);
+      return new Response(response.body, { status: response.status, headers: response.headers });
     } catch (error) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 502,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(JSON.stringify({ error: error.message }), { status: 502, headers: { "content-type": "application/json" } });
     }
   },
 };
-`
+`, fmt.Sprintf(relayGuardJS, secret))
+}
 
-// Relay worker source code deployed to Deno.
-const denoRelayCode = `Deno.serve(async (request) => {
+func renderDenoRelayCode(secret string) string {
+	return fmt.Sprintf(`%s
+Deno.serve(async (request) => {
+  if (!RELAY_SECRET || request.headers.get("x-relay-secret") !== RELAY_SECRET) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "content-type": "application/json" } });
+  }
   const target = request.headers.get("x-relay-target");
   const relayPath = request.headers.get("x-relay-path") || "/";
-
-  if (!target) {
-    return new Response(JSON.stringify({ error: "Missing x-relay-target header" }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+  if (!target || !isAllowedRelayTarget(target)) {
+    return new Response(JSON.stringify({ error: "Invalid or disallowed x-relay-target" }), { status: 400, headers: { "content-type": "application/json" } });
   }
-
   const targetUrl = target.replace(/\/$/, "") + relayPath;
   const newHeaders = new Headers(request.headers);
   newHeaders.delete("x-relay-target");
   newHeaders.delete("x-relay-path");
+  newHeaders.delete("x-relay-secret");
   newHeaders.delete("host");
-
-  const init = {
-    method: request.method,
-    headers: newHeaders,
-  };
-
+  const init = { method: request.method, headers: newHeaders };
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = request.body;
     init.duplex = "half";
   }
-
   try {
     const response = await fetch(targetUrl, init);
-    return new Response(response.body, {
-      status: response.status,
-      headers: response.headers,
-    });
+    return new Response(response.body, { status: response.status, headers: response.headers });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 502,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(JSON.stringify({ error: error.message }), { status: 502, headers: { "content-type": "application/json" } });
   }
-});`
+});
+`, fmt.Sprintf(relayGuardJS, secret))
+}
 
 // relayProjectName mirrors the Next routes' `body.projectName?.trim() || relay-<base36 millis>`.
 func relayProjectName(name string) string {
@@ -236,6 +232,11 @@ func (h *MediaHandler) HandleVercelDeploy(w http.ResponseWriter, r *http.Request
 		return
 	}
 	projectName := relayProjectName(reqBody.ProjectName)
+	relaySecret, err := newRelaySecret()
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to generate relay secret")
+		return
+	}
 
 	pkgJSON, _ := json.Marshal(map[string]any{"name": projectName, "version": "1.0.0"})
 	vercelJSON, _ := json.Marshal(map[string]any{
@@ -244,7 +245,7 @@ func (h *MediaHandler) HandleVercelDeploy(w http.ResponseWriter, r *http.Request
 	deployBody, _ := json.Marshal(map[string]any{
 		"name": projectName,
 		"files": []any{
-			map[string]any{"file": "api/relay.js", "data": vercelRelayCode},
+			map[string]any{"file": "api/relay.js", "data": renderVercelRelayCode(relaySecret)},
 			map[string]any{"file": "package.json", "data": string(pkgJSON)},
 			map[string]any{"file": "vercel.json", "data": string(vercelJSON)},
 		},
@@ -307,7 +308,7 @@ func (h *MediaHandler) HandleVercelDeploy(w http.ResponseWriter, r *http.Request
 	deployURL := "https://" + handlerutil.GetString(ready, "url")
 
 	pool, err := h.Repo.InsertProxyPool(db.ProxyPoolData{
-		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "vercel", StrictProxy: false,
+		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "vercel", RelaySecret: relaySecret, StrictProxy: false,
 	})
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
@@ -343,6 +344,11 @@ func (h *MediaHandler) HandleDenoDeploy(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	projectName := relayProjectName(reqBody.ProjectName)
+	relaySecret, err := newRelaySecret()
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to generate relay secret")
+		return
+	}
 
 	createBody, _ := json.Marshal(map[string]any{
 		"slug":   projectName,
@@ -372,7 +378,7 @@ func (h *MediaHandler) HandleDenoDeploy(w http.ResponseWriter, r *http.Request) 
 
 	deployBody, _ := json.Marshal(map[string]any{
 		"assets": map[string]any{
-			"main.ts": map[string]any{"kind": "file", "content": denoRelayCode, "encoding": "utf-8"},
+			"main.ts": map[string]any{"kind": "file", "content": renderDenoRelayCode(relaySecret), "encoding": "utf-8"},
 		},
 	})
 	status, raw, err = platformRequest(r.Context(), h.Client, http.MethodPost, denoV2API+"/apps/"+app.ID+"/deploy", denoToken, deployBody)
@@ -408,7 +414,7 @@ func (h *MediaHandler) HandleDenoDeploy(w http.ResponseWriter, r *http.Request) 
 	deployURL := fmt.Sprintf("https://%s.%s.deno.net", projectName, orgSlug)
 
 	pool, err := h.Repo.InsertProxyPool(db.ProxyPoolData{
-		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "deno", StrictProxy: false,
+		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "deno", RelaySecret: relaySecret, StrictProxy: false,
 	})
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
@@ -452,6 +458,11 @@ func (h *MediaHandler) HandleCloudflareDeploy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	projectName := relayProjectName(reqBody.ProjectName)
+	relaySecret, err := newRelaySecret()
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to generate relay secret")
+		return
+	}
 	workerScriptURL := fmt.Sprintf("%s/accounts/%s/workers/scripts/%s", cfAPI, accountID, projectName)
 
 	// Upload Worker Script (Cloudflare requires multipart/form-data).
@@ -461,7 +472,7 @@ func (h *MediaHandler) HandleCloudflareDeploy(w http.ResponseWriter, r *http.Req
 	indexHdr.Set("Content-Disposition", `form-data; name="index.js"; filename="index.js"`)
 	indexHdr.Set("Content-Type", "application/javascript+module")
 	indexPart, _ := mw.CreatePart(indexHdr)
-	indexPart.Write([]byte(cloudflareRelayCode))
+	indexPart.Write([]byte(renderCloudflareRelayCode(relaySecret)))
 
 	metaJSON, _ := json.Marshal(map[string]any{
 		"main_module":        "index.js",
@@ -529,7 +540,7 @@ func (h *MediaHandler) HandleCloudflareDeploy(w http.ResponseWriter, r *http.Req
 	}
 
 	pool, err := h.Repo.InsertProxyPool(db.ProxyPoolData{
-		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "cloudflare", StrictProxy: false,
+		Name: projectName, ProxyURL: deployURL, NoProxy: "", Type: "cloudflare", RelaySecret: relaySecret, StrictProxy: false,
 	})
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
