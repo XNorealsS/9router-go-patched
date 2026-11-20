@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -136,6 +137,8 @@ func (h *GatewayPanelHandler) HandleSystemStatus(w http.ResponseWriter, r *http.
 		autoSnap = h.Runtime.Engine.StatusSnapshot()
 	}
 
+	usageSummary := buildGatewayUsageOverview(h.Repo, conns, autoSnap)
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"version":                     updater.CurrentVersion,
 		"goVersion":                   runtime.Version(),
@@ -153,6 +156,7 @@ func (h *GatewayPanelHandler) HandleSystemStatus(w http.ResponseWriter, r *http.
 		"inFlight":                    usagetracker.GetTracker().GetActiveState(h.Repo),
 		"latencyStats":                tracing.LatencyByKey(),
 		"autonomy":                    autoSnap,
+		"usageSummary":                usageSummary,
 	})
 }
 
@@ -293,4 +297,212 @@ func probeHTTPTarget(rawURL string) bool {
 	}
 	_ = c.Close()
 	return true
+}
+
+type gatewayProviderUsage struct {
+	Provider          string   `json:"provider"`
+	AuthType          string   `json:"authType"`
+	Accounts          int      `json:"accounts"`
+	LimitPolicy       string   `json:"limitPolicy"`
+	QuotaRemainingPct *int     `json:"quotaRemainingPct,omitempty"`
+	QuotaResetTime    string   `json:"quotaResetTime,omitempty"`
+	Requests24h       int      `json:"requests24h"`
+	TotalRequests     int      `json:"totalRequests"`
+	PromptTokens      int      `json:"promptTokens"`
+	CompletionTokens  int      `json:"completionTokens"`
+	TotalTokens       int      `json:"totalTokens"`
+	Tokens24h         int      `json:"tokens24h"`
+	BackoffLevel      int      `json:"backoffLevel"`
+	ActiveLocks       []string `json:"activeLocks,omitempty"`
+	LastUsedAt        string   `json:"lastUsedAt,omitempty"`
+}
+
+type gatewayModelUsage struct {
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
+	Requests          int    `json:"requests"`
+	PromptTokens      int    `json:"promptTokens"`
+	CompletionTokens  int    `json:"completionTokens"`
+	TotalTokens       int    `json:"totalTokens"`
+	QuotaRemainingPct *int   `json:"quotaRemainingPct,omitempty"`
+	QuotaResetTime    string `json:"quotaResetTime,omitempty"`
+	LastUsedAt        string `json:"lastUsedAt,omitempty"`
+}
+
+type gatewayUsageOverview struct {
+	TotalRequests    int                    `json:"totalRequests"`
+	Requests24h      int                    `json:"requests24h"`
+	PromptTokens     int                    `json:"promptTokens"`
+	CompletionTokens int                    `json:"completionTokens"`
+	TotalTokens      int                    `json:"totalTokens"`
+	Tokens24h        int                    `json:"tokens24h"`
+	EstimatedCostUSD float64                `json:"estimatedCostUsd"`
+	ByProvider       []gatewayProviderUsage `json:"byProvider"`
+	ByModel          []gatewayModelUsage    `json:"byModel"`
+}
+
+func providerLimitPolicy(provider string) (authDefault, policy string) {
+	switch provider {
+	case "antigravity":
+		return "oauth", "Cloud Code daily per-model quota (0-100% live) + 1h OAuth auto-refresh"
+	case "deepseek-web":
+		return "cookie", "Free Web Cookie + Keccak PoW · chat.deepseek.com session rate/fair-use limit"
+	case "kilo-gateway":
+		return "no-auth", "Zero-Config Free Tier ($0/token) · per-IP RPM & model context window cap"
+	case "openrouter":
+		return "apikey", "Free (:free): 20 RPM & 50-1000 req/day · Paid (r1-1776): USD credit balance"
+	case "venice":
+		return "apikey", "Venice API tier RPM/TPM & credit/DIEM balance (venice-uncensored / R1-671B)"
+	case "perplexity":
+		return "apikey", "Sonar API credit balance & tier RPM (r1-1776 uncensored DeepSeek-R1)"
+	case "nvidia", "chutes":
+		return "apikey", "Free/API trial credits & per-key RPM rate limit"
+	case "ollama":
+		return "local", "Local hardware RAM/VRAM & concurrency only (no external token cap)"
+	default:
+		return "apikey", "Upstream provider API key quota & RPM/TPM rate limits"
+	}
+}
+
+func buildGatewayUsageOverview(repo *db.Repo, conns []gatewayConnSummary, autoSnap autonomy.SystemStatusSnapshot) gatewayUsageOverview {
+	out := gatewayUsageOverview{
+		ByProvider: []gatewayProviderUsage{},
+		ByModel:    []gatewayModelUsage{},
+	}
+	provMap := make(map[string]*gatewayProviderUsage)
+	ensureProv := func(p string) *gatewayProviderUsage {
+		if existing, ok := provMap[p]; ok {
+			return existing
+		}
+		authDef, pol := providerLimitPolicy(p)
+		item := &gatewayProviderUsage{
+			Provider:    p,
+			AuthType:    authDef,
+			LimitPolicy: pol,
+		}
+		provMap[p] = item
+		return item
+	}
+
+	// Seed active/configured connections and built-in zero-config free pool.
+	for _, c := range conns {
+		if !c.IsActive {
+			continue
+		}
+		pu := ensureProv(c.Provider)
+		if c.AuthType != "" {
+			pu.AuthType = c.AuthType
+		}
+		pu.Accounts++
+		if c.BackoffLevel > pu.BackoffLevel {
+			pu.BackoffLevel = c.BackoffLevel
+		}
+		for _, lk := range c.ActiveLocks {
+			pu.ActiveLocks = append(pu.ActiveLocks, lk)
+		}
+	}
+	kilo := ensureProv("kilo-gateway")
+	if kilo.Accounts == 0 {
+		kilo.Accounts = 1
+	}
+
+	// Attach live Antigravity quota metadata from CatalogSnapshot.
+	modelQuotaPct := make(map[string]int)
+	modelQuotaReset := make(map[string]string)
+	minAGQuota := 101
+	var agReset string
+	for _, m := range autoSnap.Catalog.Models {
+		if m.QuotaRemaining != nil {
+			pct := int(*m.QuotaRemaining*100 + 0.5)
+			key := (m.Provider + "/" + m.ID)
+			modelQuotaPct[key] = pct
+			modelQuotaReset[key] = m.QuotaResetTime
+			if (m.Provider == "" || m.Provider == "antigravity") && pct < minAGQuota {
+				minAGQuota = pct
+				agReset = m.QuotaResetTime
+			}
+		}
+	}
+	if minAGQuota <= 100 {
+		ag := ensureProv("antigravity")
+		v := minAGQuota
+		ag.QuotaRemainingPct = &v
+		ag.QuotaResetTime = agReset
+	}
+
+	if repo != nil && repo.RawDB() != nil {
+		cutoff24h := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+		rows, err := repo.RawDB().Query(`
+			SELECT
+				COALESCE(provider, 'unknown'),
+				COALESCE(model, 'unknown'),
+				COUNT(*),
+				SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END),
+				COALESCE(SUM(promptTokens), 0),
+				COALESCE(SUM(completionTokens), 0),
+				COALESCE(SUM(CASE WHEN timestamp >= ? THEN COALESCE(promptTokens,0)+COALESCE(completionTokens,0) ELSE 0 END), 0),
+				COALESCE(SUM(cost), 0),
+				COALESCE(MAX(timestamp), '')
+			FROM usageHistory
+			GROUP BY provider, model
+			ORDER BY COUNT(*) DESC, (COALESCE(SUM(promptTokens),0)+COALESCE(SUM(completionTokens),0)) DESC
+		`, cutoff24h, cutoff24h)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var prov, mod, lastTS string
+				var reqTotal, req24, pTok, cTok, tok24 int
+				var cost float64
+				if err := rows.Scan(&prov, &mod, &reqTotal, &req24, &pTok, &cTok, &tok24, &cost, &lastTS); err != nil {
+					continue
+				}
+				totTok := pTok + cTok
+				out.TotalRequests += reqTotal
+				out.Requests24h += req24
+				out.PromptTokens += pTok
+				out.CompletionTokens += cTok
+				out.TotalTokens += totTok
+				out.Tokens24h += tok24
+				out.EstimatedCostUSD += cost
+
+				pu := ensureProv(prov)
+				pu.TotalRequests += reqTotal
+				pu.Requests24h += req24
+				pu.PromptTokens += pTok
+				pu.CompletionTokens += cTok
+				pu.TotalTokens += totTok
+				pu.Tokens24h += tok24
+				if lastTS > pu.LastUsedAt {
+					pu.LastUsedAt = lastTS
+				}
+
+				mu := gatewayModelUsage{
+					Provider:         prov,
+					Model:            mod,
+					Requests:         reqTotal,
+					PromptTokens:     pTok,
+					CompletionTokens: cTok,
+					TotalTokens:      totTok,
+					LastUsedAt:       lastTS,
+				}
+				if pct, ok := modelQuotaPct[prov+"/"+mod]; ok {
+					v := pct
+					mu.QuotaRemainingPct = &v
+					mu.QuotaResetTime = modelQuotaReset[prov+"/"+mod]
+				}
+				out.ByModel = append(out.ByModel, mu)
+			}
+		}
+	}
+
+	for _, pu := range provMap {
+		out.ByProvider = append(out.ByProvider, *pu)
+	}
+	sort.Slice(out.ByProvider, func(i, j int) bool {
+		if out.ByProvider[i].TotalRequests != out.ByProvider[j].TotalRequests {
+			return out.ByProvider[i].TotalRequests > out.ByProvider[j].TotalRequests
+		}
+		return out.ByProvider[i].Provider < out.ByProvider[j].Provider
+	})
+	return out
 }

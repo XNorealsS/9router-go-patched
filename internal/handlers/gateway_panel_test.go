@@ -36,6 +36,12 @@ func setupGatewayTestRouter(t *testing.T) (*chi.Mux, *db.Repo, *TokenSaverConfig
 	if err != nil {
 		t.Fatalf("seed providerConnection: %v", err)
 	}
+	_, err = database.Exec(
+		`INSERT INTO usageHistory (timestamp, provider, model, connectionId, apiKey, endpoint, promptTokens, completionTokens, cost, status) VALUES ('2099-01-01T00:00:00Z', 'antigravity', 'gemini-3-flash', 'c1', 'k1', '/v1/chat/completions', 120, 80, 0.001, '200')`,
+	)
+	if err != nil {
+		t.Fatalf("seed usageHistory: %v", err)
+	}
 
 	repo := db.NewRepo(database)
 	ts := NewTokenSaverConfig(true, false, false)
@@ -79,8 +85,8 @@ func TestGatewayPanel_AuthRedactionAndControls(t *testing.T) {
 	if strings.Contains(body, "sk-secret-must-not-leak") {
 		t.Fatalf("secret leaked in /api/gateway/system response: %s", body)
 	}
-	if !strings.Contains(body, "gemini-3-flash") || !strings.Contains(body, "proj-live") || !strings.Contains(body, `"autonomy"`) {
-		t.Fatalf("expected active model lock, projectId, and autonomy state in response: %s", body)
+	if !strings.Contains(body, "gemini-3-flash") || !strings.Contains(body, "proj-live") || !strings.Contains(body, `"autonomy"`) || !strings.Contains(body, `"usageSummary"`) || !strings.Contains(body, `"totalTokens":200`) {
+		t.Fatalf("expected active model lock, projectId, autonomy, and usageSummary in response: %s", body)
 	}
 
 	// 4. POST /api/gateway/toggles updates runtime TokenSaverConfig.

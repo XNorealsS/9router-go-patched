@@ -173,6 +173,23 @@
 
       <div class="panel">
         <div class="panel-head">
+          <span>PROVIDER USAGE, QUOTA &amp; RATE-LIMIT MONITOR</span>
+          <span class="muted" id="usageTotalsNote">Loading token &amp; quota telemetry...</span>
+        </div>
+        <div class="panel-body" style="padding:0;overflow-x:auto;">
+          <table>
+            <thead>
+              <tr><th>Provider</th><th>Tier Limit &amp; Quota Policy</th><th>Live Quota / Cooldown</th><th>Requests (24h / All)</th><th>Tokens (In / Out / Total)</th><th>Last Active</th></tr>
+            </thead>
+            <tbody id="usageProvBody">
+              <tr><td colspan="6" class="muted">Loading provider usage...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <span>ANTIGRAVITY CONNECTIONS &amp; OAUTH HEALTH</span>
           <span class="muted" id="connSummary">-</span>
         </div>
@@ -275,10 +292,10 @@
         <div class="panel-body" style="padding:0;overflow-x:auto;max-height:360px;">
           <table>
             <thead>
-              <tr><th>Model ID</th><th>Status</th><th>Quota</th><th>Limits (Ctx/Out)</th><th>Capabilities</th></tr>
+              <tr><th>Model ID</th><th>Status</th><th>Quota / Reset</th><th>Used (Req / Tokens)</th><th>Limits (Ctx/Out)</th><th>Capabilities</th></tr>
             </thead>
             <tbody id="catalogBody">
-              <tr><td colspan="5" class="muted">Waiting for catalog sync...</td></tr>
+              <tr><td colspan="6" class="muted">Waiting for catalog sync...</td></tr>
             </tbody>
           </table>
         </div>
@@ -468,17 +485,67 @@
           return '<tr><td>' + esc(label) + '</td><td>' + s.count + '</td><td>' + s.errors + '</td><td>' + Math.round(s.p50Ms) + 'ms</td><td>' + Math.round(s.p95Ms) + 'ms</td></tr>';
         }).join("") : '<tr><td colspan="5" class="muted">No latency spans recorded yet.</td></tr>';
 
-        const models = cat.models || [];
+        const usg = sys.usageSummary || {};
+        const fmtNum = (n) => Number(n || 0).toLocaleString();
+        $("usageTotalsNote").textContent = "24h: " + fmtNum(usg.requests24h) + " req · " + fmtNum(usg.tokens24h) + " tok | All-time: " + fmtNum(usg.totalRequests) + " req · " + fmtNum(usg.totalTokens) + " tok (" + fmtNum(usg.promptTokens) + " in / " + fmtNum(usg.completionTokens) + " out)";
+        const provRows = usg.byProvider || [];
+        $("usageProvBody").innerHTML = provRows.length ? provRows.map(p => {
+          let quotaBadge = '<span class="pill">active (' + (p.accounts || 1) + ' acct)</span>';
+          if (typeof p.quotaRemainingPct === "number") {
+            const cls = p.quotaRemainingPct > 20 ? "pill-ok" : (p.quotaRemainingPct > 0 ? "pill-warn" : "pill-red");
+            const rst = p.quotaResetTime ? (" · reset " + p.quotaResetTime.replace("T"," ").slice(11,16) + "Z") : "";
+            quotaBadge = '<span class="pill ' + cls + '">' + p.quotaRemainingPct + '% remaining' + esc(rst) + '</span>';
+          }
+          if (p.activeLocks && p.activeLocks.length) {
+            quotaBadge += ' ' + p.activeLocks.map(l => '<span class="pill pill-red">lock:' + esc(l) + '</span>').join(" ");
+          } else if (p.backoffLevel > 0) {
+            quotaBadge += ' <span class="pill pill-warn">backoff=' + p.backoffLevel + '</span>';
+          }
+          const last = p.lastUsedAt ? p.lastUsedAt.replace("T", " ").slice(0, 19) + "Z" : "-";
+          return '<tr><td><strong>' + esc(p.provider) + '</strong> <span class="pill">' + esc(p.authType || "api") + '</span></td>'
+            + '<td class="muted">' + esc(p.limitPolicy || "-") + '</td>'
+            + '<td>' + quotaBadge + '</td>'
+            + '<td>' + fmtNum(p.requests24h) + ' / <strong>' + fmtNum(p.totalRequests) + '</strong></td>'
+            + '<td>' + fmtNum(p.promptTokens) + ' / ' + fmtNum(p.completionTokens) + ' / <strong>' + fmtNum(p.totalTokens) + '</strong></td>'
+            + '<td class="muted">' + esc(last) + '</td></tr>';
+        }).join("") : '<tr><td colspan="6" class="muted">No provider usage recorded yet.</td></tr>';
+
+        const modelUsageMap = {};
+        for (const mu of (usg.byModel || [])) {
+          modelUsageMap[(mu.provider || "") + "/" + (mu.model || "")] = mu;
+        }
+        const models = (cat.models || []).slice();
+        const seenModelKeys = new Set(models.map(m => (m.provider || "antigravity") + "/" + m.id));
+        for (const mu of (usg.byModel || [])) {
+          const k = (mu.provider || "") + "/" + (mu.model || "");
+          if (!seenModelKeys.has(k)) {
+            seenModelKeys.add(k);
+            models.push({ id: mu.model, provider: mu.provider, status: "verified", maxTokens: 131072, maxOutputTokens: 8192, capabilities: {} });
+          }
+        }
         const aliases = cat.aliases || [];
         const depAliasCount = aliases.filter(a => a.status === "deprecated").length;
         $("aliasHealth").textContent = aliases.length + " synonyms (" + depAliasCount + " obsolete)";
         $("catalogBody").innerHTML = models.length ? models.slice(0, 100).map(m => {
-          const q = typeof m.quotaRemaining === "number" ? (Math.round(m.quotaRemaining * 100) + "%") : "-";
+          const prov = m.provider || "antigravity";
+          const mu = modelUsageMap[prov + "/" + m.id] || {};
+          let q = "-";
+          if (typeof m.quotaRemaining === "number") {
+            const pct = Math.round(m.quotaRemaining * 100);
+            const cls = pct > 20 ? "pill-ok" : (pct > 0 ? "pill-warn" : "pill-red");
+            const rst = m.quotaResetTime ? (" " + m.quotaResetTime.slice(11, 16) + "Z") : "";
+            q = '<span class="pill ' + cls + '">' + pct + '%' + esc(rst) + '</span>';
+          } else if (prov === "kilo-gateway") {
+            q = '<span class="pill pill-ok">$0 free</span>';
+          } else if (prov === "deepseek-web") {
+            q = '<span class="pill">cookie fair-use</span>';
+          }
+          const usedCell = mu.requests ? (fmtNum(mu.requests) + " req · <strong>" + fmtNum(mu.totalTokens) + "</strong> tok") : '<span class="muted">0 req</span>';
           const lim = (m.maxTokens ? Math.round(m.maxTokens/1000)+"k" : "-") + " / " + (m.maxOutputTokens ? Math.round(m.maxOutputTokens/1000)+"k" : "-");
           const c = m.capabilities || {};
           const tags = [c.Vision && "vision", c.PDF && "pdf", c.Tools && "tools", c.Reasoning && "think", c.ImageOutput && "img_gen", c.Search && "search"].filter(Boolean).map(t => '<span class="pill">' + t + '</span>').join("");
-          return '<tr><td><span class="pill">' + esc(m.provider || "antigravity") + '</span> ' + esc(m.id) + (m.recommended ? ' <span class="pill">rec</span>' : '') + '</td><td>' + statusPill(m.status) + '</td><td>' + q + '</td><td>' + lim + '</td><td>' + (tags || '<span class="muted">text</span>') + '</td></tr>';
-        }).join("") : '<tr><td colspan="5" class="muted">No models synced yet.</td></tr>';
+          return '<tr><td><span class="pill">' + esc(prov) + '</span> ' + esc(m.id) + (m.recommended ? ' <span class="pill">rec</span>' : '') + '</td><td>' + statusPill(m.status) + '</td><td>' + q + '</td><td>' + usedCell + '</td><td>' + lim + '</td><td>' + (tags || '<span class="muted">text</span>') + '</td></tr>';
+        }).join("") : '<tr><td colspan="6" class="muted">No models synced yet.</td></tr>';
 
         $("tgRtk").checked = !!sys.tokenSavers.rtk;
         $("tgCaveman").checked = !!sys.tokenSavers.caveman;
