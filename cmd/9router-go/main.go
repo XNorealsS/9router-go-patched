@@ -148,6 +148,12 @@ func runServer(cCtx *cli.Context) error {
 	}
 	defer conn.Close()
 
+	if migrated, mErr := db.MigrateEncryptConnections(conn); mErr != nil {
+		log.Printf("[security] credential encryption migration failed: %v", mErr)
+	} else if migrated > 0 {
+		log.Printf("[security] encrypted credentials at rest for %d provider connection(s)", migrated)
+	}
+
 	repo := db.NewRepo(conn)
 
 	ts := handlers.NewTokenSaverConfig(cCtx.Bool("rtk"), cCtx.Bool("caveman"), cCtx.Bool("ponytail"))
@@ -186,6 +192,9 @@ func runServer(cCtx *cli.Context) error {
 	host := os.Getenv("HOST")
 	if host == "" {
 		host = "127.0.0.1"
+	}
+	if host != "127.0.0.1" && host != "::1" && host != "localhost" && !db.HasCredentialEncryptionKey() {
+		log.Printf("[security] WARNING: binding non-loopback host %q without CREDENTIAL_ENCRYPTION_KEY; stored SQLite provider credentials remain plaintext", host)
 	}
 	addr := fmt.Sprintf("%s:%d", host, cfg.Port)
 	log.Printf("9Router Go Proxy (%s) starting on %s", updater.CurrentVersion, addr)

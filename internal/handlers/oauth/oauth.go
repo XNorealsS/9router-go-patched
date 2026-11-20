@@ -130,10 +130,11 @@ func (h *OAuthHandler) HandleOAuthImport(w http.ResponseWriter, r *http.Request)
 	}
 
 	now := currentTimestamp()
-	_, err = h.Repo.RawDB().Exec(
-		`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
-		connID, provider, authType, connName, string(data), now, now,
-	)
+	if h.Repo == nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "database repository unavailable")
+		return
+	}
+	err = h.Repo.InsertProviderConnection(connID, provider, authType, connName, string(data), now, now)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("save connection: %v", err))
 		return
@@ -356,10 +357,7 @@ func (h *OAuthHandler) HandleOAuthKiroSocialExchange(w http.ResponseWriter, r *h
 	}
 	if h.Repo != nil {
 		now := currentTimestamp()
-		if _, err := h.Repo.RawDB().Exec(
-			`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, 'oauth', ?, 1, ?, ?, ?)`,
-			connID, "kiro", "Kiro Social", string(data), now, now,
-		); err != nil {
+		if err := h.Repo.InsertProviderConnection(connID, "kiro", "oauth", "Kiro Social", string(data), now, now); err != nil {
 			log.Error("oauth", "save Kiro social connection failed", "error", err)
 			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save Kiro connection")
 			return
@@ -416,10 +414,7 @@ func (h *OAuthHandler) HandleOAuthCodexBulkImport(w http.ResponseWriter, r *http
 			continue
 		}
 		now := currentTimestamp()
-		_, err = h.Repo.RawDB().Exec(
-			`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, 'codex', 'oauth', ?, 1, ?, ?, ?)`,
-			connID, name, string(data), now, now,
-		)
+		err = h.Repo.InsertProviderConnection(connID, "codex", "oauth", name, string(data), now, now)
 		if err == nil {
 			imported = append(imported, connID)
 		}

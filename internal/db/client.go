@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,6 +18,17 @@ var (
 	dbOnce     sync.Once
 	initErr    error
 )
+
+func sqliteDSN(path string) string {
+	if path == "" || path == ":memory:" {
+		return path
+	}
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)"
+}
 
 // OpenDatabase opens a SQLite database and configures it with WAL mode, normal synchronous mode,
 // and other safe concurrency / performance defaults matching the Node/Bun implementation.
@@ -30,7 +42,7 @@ func OpenDatabase(path string) (*sql.DB, error) {
 	// and its directory private to the owning user.
 	_ = os.Chmod(dbDir, 0700)
 
-	db, err := sql.Open("sqlite", path)
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		return nil, fmt.Errorf("sql.Open(%s): %w", path, err)
 	}

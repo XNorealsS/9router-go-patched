@@ -148,137 +148,138 @@ func extractContent(content any) string {
 	}
 }
 
-// upsertDailyUsage reads the existing daily aggregate, merges new tokens, and upserts.
+// upsertDailyUsage reads the existing daily aggregate, merges new tokens, and upserts
+// atomically via BEGIN IMMEDIATE so multi-process writers sharing one SQLite DB do not race.
 func (h *ChatHandler) upsertDailyUsage(provider, model, endpoint, connectionID, apiKey string, promptTokens, completionTokens, cachedTokens int, cost float64) {
 	dailyUsageMu.Lock()
 	defer dailyUsageMu.Unlock()
 
 	dateKey := time.Now().UTC().Format("2006-01-02")
-	existing, _ := h.Repo.GetUsageDaily(dateKey)
+	err := h.Repo.MergeUsageDaily(dateKey, func(existing string) (string, error) {
+		data := parseDailyData(existing)
 
-	data := parseDailyData(existing)
+		data["requests"] = getJSONInt(data, "requests") + 1
+		data["promptTokens"] = getJSONInt(data, "promptTokens") + promptTokens
+		data["completionTokens"] = getJSONInt(data, "completionTokens") + completionTokens
+		data["cachedTokens"] = getJSONInt(data, "cachedTokens") + cachedTokens
+		data["cost"] = getJSONFloat(data, "cost") + cost
 
-	data["requests"] = getJSONInt(data, "requests") + 1
-	data["promptTokens"] = getJSONInt(data, "promptTokens") + promptTokens
-	data["completionTokens"] = getJSONInt(data, "completionTokens") + completionTokens
-	data["cachedTokens"] = getJSONInt(data, "cachedTokens") + cachedTokens
-	data["cost"] = getJSONFloat(data, "cost") + cost
+		data["totalPromptTokens"] = getJSONInt(data, "totalPromptTokens") + promptTokens
+		data["totalCompletionTokens"] = getJSONInt(data, "totalCompletionTokens") + completionTokens
+		data["totalRequests"] = getJSONInt(data, "totalRequests") + 1
 
-	data["totalPromptTokens"] = getJSONInt(data, "totalPromptTokens") + promptTokens
-	data["totalCompletionTokens"] = getJSONInt(data, "totalCompletionTokens") + completionTokens
-	data["totalRequests"] = getJSONInt(data, "totalRequests") + 1
+		// byProvider
+		byProvider := getJSONMap(data, "byProvider")
+		pp := getJSONMap(byProvider, provider)
+		pp["requests"] = getJSONInt(pp, "requests") + 1
+		pp["promptTokens"] = getJSONInt(pp, "promptTokens") + promptTokens
+		pp["completionTokens"] = getJSONInt(pp, "completionTokens") + completionTokens
+		pp["cachedTokens"] = getJSONInt(pp, "cachedTokens") + cachedTokens
+		pp["cost"] = getJSONFloat(pp, "cost") + cost
+		byProvider[provider] = pp
+		data["byProvider"] = byProvider
 
-	// byProvider
-	byProvider := getJSONMap(data, "byProvider")
-	pp := getJSONMap(byProvider, provider)
-	pp["requests"] = getJSONInt(pp, "requests") + 1
-	pp["promptTokens"] = getJSONInt(pp, "promptTokens") + promptTokens
-	pp["completionTokens"] = getJSONInt(pp, "completionTokens") + completionTokens
-	pp["cachedTokens"] = getJSONInt(pp, "cachedTokens") + cachedTokens
-	pp["cost"] = getJSONFloat(pp, "cost") + cost
-	byProvider[provider] = pp
-	data["byProvider"] = byProvider
-
-	// byModel
-	modelKey := model + "|" + provider
-	byModel := getJSONMap(data, "byModel")
-	mm := getJSONMap(byModel, modelKey)
-	mm["requests"] = getJSONInt(mm, "requests") + 1
-	mm["promptTokens"] = getJSONInt(mm, "promptTokens") + promptTokens
-	mm["completionTokens"] = getJSONInt(mm, "completionTokens") + completionTokens
-	mm["cachedTokens"] = getJSONInt(mm, "cachedTokens") + cachedTokens
-	mm["cost"] = getJSONFloat(mm, "cost") + cost
-	if mm["rawModel"] == nil {
-		mm["rawModel"] = model
-	}
-	if mm["provider"] == nil {
-		mm["provider"] = provider
-	}
-	byModel[modelKey] = mm
-	data["byModel"] = byModel
-
-	// byApiKey
-	apiKeyVal := maskAPIKey(apiKey)
-	if apiKeyVal == "" {
-		apiKeyVal = "local-no-key"
-	}
-	akKey := apiKeyVal + "|" + model + "|" + provider
-	byApiKey := getJSONMap(data, "byApiKey")
-	ak := getJSONMap(byApiKey, akKey)
-	ak["requests"] = getJSONInt(ak, "requests") + 1
-	ak["promptTokens"] = getJSONInt(ak, "promptTokens") + promptTokens
-	ak["completionTokens"] = getJSONInt(ak, "completionTokens") + completionTokens
-	ak["cachedTokens"] = getJSONInt(ak, "cachedTokens") + cachedTokens
-	ak["cost"] = getJSONFloat(ak, "cost") + cost
-	ak["rawModel"] = model
-	ak["provider"] = provider
-	ak["apiKey"] = apiKeyVal
-	byApiKey[akKey] = ak
-	data["byApiKey"] = byApiKey
-
-	// byEndpoint
-	epKey := endpoint + "|" + model + "|" + provider
-	byEndpoint := getJSONMap(data, "byEndpoint")
-	ep := getJSONMap(byEndpoint, epKey)
-	ep["requests"] = getJSONInt(ep, "requests") + 1
-	ep["promptTokens"] = getJSONInt(ep, "promptTokens") + promptTokens
-	ep["completionTokens"] = getJSONInt(ep, "completionTokens") + completionTokens
-	ep["cachedTokens"] = getJSONInt(ep, "cachedTokens") + cachedTokens
-	ep["cost"] = getJSONFloat(ep, "cost") + cost
-	if ep["endpoint"] == nil {
-		ep["endpoint"] = endpoint
-	}
-	if ep["rawModel"] == nil {
-		ep["rawModel"] = model
-	}
-	if ep["provider"] == nil {
-		ep["provider"] = provider
-	}
-	byEndpoint[epKey] = ep
-	data["byEndpoint"] = byEndpoint
-
-	// byAccount
-	if connectionID != "" {
-		byAccount := getJSONMap(data, "byAccount")
-		acc := getJSONMap(byAccount, connectionID)
-		acc["requests"] = getJSONInt(acc, "requests") + 1
-		acc["promptTokens"] = getJSONInt(acc, "promptTokens") + promptTokens
-		acc["completionTokens"] = getJSONInt(acc, "completionTokens") + completionTokens
-		acc["cachedTokens"] = getJSONInt(acc, "cachedTokens") + cachedTokens
-		acc["cost"] = getJSONFloat(acc, "cost") + cost
-		if acc["rawModel"] == nil {
-			acc["rawModel"] = model
+		// byModel
+		modelKey := model + "|" + provider
+		byModel := getJSONMap(data, "byModel")
+		mm := getJSONMap(byModel, modelKey)
+		mm["requests"] = getJSONInt(mm, "requests") + 1
+		mm["promptTokens"] = getJSONInt(mm, "promptTokens") + promptTokens
+		mm["completionTokens"] = getJSONInt(mm, "completionTokens") + completionTokens
+		mm["cachedTokens"] = getJSONInt(mm, "cachedTokens") + cachedTokens
+		mm["cost"] = getJSONFloat(mm, "cost") + cost
+		if mm["rawModel"] == nil {
+			mm["rawModel"] = model
 		}
-		if acc["provider"] == nil {
-			acc["provider"] = provider
+		if mm["provider"] == nil {
+			mm["provider"] = provider
 		}
-		byAccount[connectionID] = acc
-		data["byAccount"] = byAccount
-	}
+		byModel[modelKey] = mm
+		data["byModel"] = byModel
 
-	// providers (legacy nested format)
-	providers := getJSONMap(data, "providers")
-	pd := getJSONMap(providers, provider)
-	pd["promptTokens"] = getJSONInt(pd, "promptTokens") + promptTokens
-	pd["completionTokens"] = getJSONInt(pd, "completionTokens") + completionTokens
-	pd["requests"] = getJSONInt(pd, "requests") + 1
+		// byApiKey
+		apiKeyVal := maskAPIKey(apiKey)
+		if apiKeyVal == "" {
+			apiKeyVal = "local-no-key"
+		}
+		akKey := apiKeyVal + "|" + model + "|" + provider
+		byApiKey := getJSONMap(data, "byApiKey")
+		ak := getJSONMap(byApiKey, akKey)
+		ak["requests"] = getJSONInt(ak, "requests") + 1
+		ak["promptTokens"] = getJSONInt(ak, "promptTokens") + promptTokens
+		ak["completionTokens"] = getJSONInt(ak, "completionTokens") + completionTokens
+		ak["cachedTokens"] = getJSONInt(ak, "cachedTokens") + cachedTokens
+		ak["cost"] = getJSONFloat(ak, "cost") + cost
+		ak["rawModel"] = model
+		ak["provider"] = provider
+		ak["apiKey"] = apiKeyVal
+		byApiKey[akKey] = ak
+		data["byApiKey"] = byApiKey
 
-	models := getJSONMap(pd, "models")
-	md := getJSONMap(models, model)
-	md["promptTokens"] = getJSONInt(md, "promptTokens") + promptTokens
-	md["completionTokens"] = getJSONInt(md, "completionTokens") + completionTokens
-	md["requests"] = getJSONInt(md, "requests") + 1
-	models[model] = md
-	pd["models"] = models
-	providers[provider] = pd
-	data["providers"] = providers
+		// byEndpoint
+		epKey := endpoint + "|" + model + "|" + provider
+		byEndpoint := getJSONMap(data, "byEndpoint")
+		ep := getJSONMap(byEndpoint, epKey)
+		ep["requests"] = getJSONInt(ep, "requests") + 1
+		ep["promptTokens"] = getJSONInt(ep, "promptTokens") + promptTokens
+		ep["completionTokens"] = getJSONInt(ep, "completionTokens") + completionTokens
+		ep["cachedTokens"] = getJSONInt(ep, "cachedTokens") + cachedTokens
+		ep["cost"] = getJSONFloat(ep, "cost") + cost
+		if ep["endpoint"] == nil {
+			ep["endpoint"] = endpoint
+		}
+		if ep["rawModel"] == nil {
+			ep["rawModel"] = model
+		}
+		if ep["provider"] == nil {
+			ep["provider"] = provider
+		}
+		byEndpoint[epKey] = ep
+		data["byEndpoint"] = byEndpoint
 
-	dataJSON, err := json.Marshal(data)
+		// byAccount
+		if connectionID != "" {
+			byAccount := getJSONMap(data, "byAccount")
+			acc := getJSONMap(byAccount, connectionID)
+			acc["requests"] = getJSONInt(acc, "requests") + 1
+			acc["promptTokens"] = getJSONInt(acc, "promptTokens") + promptTokens
+			acc["completionTokens"] = getJSONInt(acc, "completionTokens") + completionTokens
+			acc["cachedTokens"] = getJSONInt(acc, "cachedTokens") + cachedTokens
+			acc["cost"] = getJSONFloat(acc, "cost") + cost
+			if acc["rawModel"] == nil {
+				acc["rawModel"] = model
+			}
+			if acc["provider"] == nil {
+				acc["provider"] = provider
+			}
+			byAccount[connectionID] = acc
+			data["byAccount"] = byAccount
+		}
+
+		// providers (legacy nested format)
+		providers := getJSONMap(data, "providers")
+		pd := getJSONMap(providers, provider)
+		pd["promptTokens"] = getJSONInt(pd, "promptTokens") + promptTokens
+		pd["completionTokens"] = getJSONInt(pd, "completionTokens") + completionTokens
+		pd["requests"] = getJSONInt(pd, "requests") + 1
+
+		models := getJSONMap(pd, "models")
+		md := getJSONMap(models, model)
+		md["promptTokens"] = getJSONInt(md, "promptTokens") + promptTokens
+		md["completionTokens"] = getJSONInt(md, "completionTokens") + completionTokens
+		md["requests"] = getJSONInt(md, "requests") + 1
+		models[model] = md
+		pd["models"] = models
+		providers[provider] = pd
+		data["providers"] = providers
+
+		dataJSON, err := json.Marshal(data)
+		if err != nil {
+			return "", fmt.Errorf("marshal daily usage: %w", err)
+		}
+		return string(dataJSON), nil
+	})
 	if err != nil {
-		log.Error("usage", "marshal daily usage failed", "error", err)
-		return
-	}
-	if err := h.Repo.UpsertUsageDaily(dateKey, string(dataJSON)); err != nil {
 		log.Error("usage", "upsert daily usage failed", "error", err)
 	}
 }

@@ -1,7 +1,10 @@
 package db
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -30,11 +33,6 @@ func (r *Repo) InsertUsageHistory(provider, model, connectionID, apiKey, endpoin
 }
 
 // UpsertUsageDaily inserts or replaces a daily usage aggregation record.
-// The data parameter should be a JSON string matching the 9Router daily aggregation format.
-// NOTE: INSERT OR REPLACE is an atomic full-row replace of the pre-merged JSON
-// blob. Merging happens in-process (see handlers/chat/usage.go dailyUsageMu), so
-// concurrent writers from MULTIPLE processes can still clobber each other. This
-// is documented as single-writer unless the aggregation moves SQL-side.
 func (r *Repo) UpsertUsageDaily(dateKey string, data string) error {
 	_, err := r.db.Exec(
 		`INSERT OR REPLACE INTO usageDaily (dateKey, data) VALUES (?, ?)`,
@@ -43,6 +41,58 @@ func (r *Repo) UpsertUsageDaily(dateKey string, data string) error {
 	if err != nil {
 		return fmt.Errorf("upsert daily usage %s: %w", dateKey, err)
 	}
+	return nil
+}
+
+// MergeUsageDaily atomically reads, transforms, and writes a daily usage record inside
+// a SQLite BEGIN IMMEDIATE transaction so concurrent processes sharing the same SQLite
+// WAL file serialize safely without lost updates.
+func (r *Repo) MergeUsageDaily(dateKey string, merge func(existing string) (string, error)) error {
+	ctx := context.Background()
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire usage conn: %w", err)
+	}
+	defer conn.Close()
+
+	_, _ = conn.ExecContext(ctx, "PRAGMA busy_timeout = 5000")
+	for attempt := 0; attempt < 5; attempt++ {
+		if _, err = conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err == nil {
+			break
+		}
+		if !strings.Contains(err.Error(), "SQLITE_BUSY") && !strings.Contains(err.Error(), "database is locked") {
+			return fmt.Errorf("begin immediate daily usage %s: %w", dateKey, err)
+		}
+		time.Sleep(time.Duration(15*(attempt+1)) * time.Millisecond)
+	}
+	if err != nil {
+		return fmt.Errorf("begin immediate daily usage %s: %w", dateKey, err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK")
+		}
+	}()
+
+	var existing string
+	err = conn.QueryRowContext(ctx, `SELECT data FROM usageDaily WHERE dateKey = ?`, dateKey).Scan(&existing)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read daily usage %s: %w", dateKey, err)
+	}
+
+	nextData, err := merge(existing)
+	if err != nil {
+		return err
+	}
+
+	if _, err := conn.ExecContext(ctx, `INSERT OR REPLACE INTO usageDaily (dateKey, data) VALUES (?, ?)`, dateKey, nextData); err != nil {
+		return fmt.Errorf("upsert daily usage %s: %w", dateKey, err)
+	}
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
+		return fmt.Errorf("commit daily usage %s: %w", dateKey, err)
+	}
+	committed = true
 	return nil
 }
 

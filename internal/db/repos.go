@@ -64,12 +64,42 @@ func (r *Repo) CreateProviderConnection(id, provider, authType, name string, api
 		return fmt.Errorf("marshal provider connection data: %w", err)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
+	if err := r.InsertProviderConnection(id, provider, authType, name, string(data), now, now); err != nil {
+		return fmt.Errorf("create provider connection: %w", err)
+	}
+	return nil
+}
+
+// InsertProviderConnection inserts a provider connection row, encrypting sensitive
+// fields when CREDENTIAL_ENCRYPTION_KEY is configured.
+func (r *Repo) InsertProviderConnection(id, provider, authType, name, rawData, createdAt, updatedAt string) error {
+	protected, err := ProtectConnectionData(rawData)
+	if err != nil {
+		return fmt.Errorf("protect provider connection data: %w", err)
+	}
 	_, err = r.db.Exec(
 		`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, ?, ?, 1, ?, ?, ?)`,
-		id, provider, authType, name, string(data), now, now,
+		id, provider, authType, name, protected, createdAt, updatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("create provider connection: %w", err)
+		return fmt.Errorf("insert provider connection: %w", err)
+	}
+	return nil
+}
+
+// UpdateProviderConnectionData updates a connection's data JSON, encrypting sensitive
+// fields when CREDENTIAL_ENCRYPTION_KEY is configured.
+func (r *Repo) UpdateProviderConnectionData(id, rawData, updatedAt string) error {
+	protected, err := ProtectConnectionData(rawData)
+	if err != nil {
+		return fmt.Errorf("protect provider connection data: %w", err)
+	}
+	_, err = r.db.Exec(
+		"UPDATE providerConnections SET data = ?, updatedAt = ? WHERE id = ?",
+		protected, updatedAt, id,
+	)
+	if err != nil {
+		return fmt.Errorf("update provider connection data: %w", err)
 	}
 	return nil
 }
@@ -88,6 +118,11 @@ func (r *Repo) GetProviderConnectionByID(id string) (*models.ProviderConnection,
 	if err != nil {
 		return nil, err
 	}
+	unprotected, err := UnprotectConnectionData(conn.Data)
+	if err != nil {
+		return nil, fmt.Errorf("unprotect connection %s: %w", conn.ID, err)
+	}
+	conn.Data = unprotected
 	return &conn, nil
 }
 
@@ -139,6 +174,11 @@ func (r *Repo) GetProviderConnections(provider string, activeOnly bool) ([]*mode
 		if err != nil {
 			return nil, err
 		}
+		unprotected, err := UnprotectConnectionData(conn.Data)
+		if err != nil {
+			return nil, fmt.Errorf("unprotect connection %s: %w", conn.ID, err)
+		}
+		conn.Data = unprotected
 		connections = append(connections, &conn)
 	}
 
