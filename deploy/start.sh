@@ -36,6 +36,16 @@ stop() {
 trap stop EXIT
 trap 'exit 143' INT TERM
 
+# Ensure Node/npm-global/nvm binaries are discoverable under systemd's minimal PATH.
+if ! command -v 9router >/dev/null 2>&1; then
+  for d in /usr/local/bin "${HOME}/.npm-global/bin" "${HOME}/.local/bin" "${HOME}/.nvm/versions/node"/*/bin; do
+    if [ -x "${d}/9router" ]; then
+      export PATH="${d}:${PATH}"
+      break
+    fi
+  done
+fi
+
 if command -v 9router >/dev/null 2>&1; then
   9router --port "${DASHBOARD_PORT}" --host 127.0.0.1 --no-browser --skip-update --log &
   PIDS+=($!)

@@ -15,7 +15,22 @@ Open: `http://<SERVER_IP>:20128/dashboard` (put Nginx/Caddy TLS + IP/firewall re
 
 ## Option B — Bare-Metal Linux Bundle (`dist/9router-gateway-linux-amd64.tar.gz`)
 
-Build the Linux package from Windows PowerShell (`scripts/package-linux.ps1`), copy it to `/opt/9router-gateway`, and install the systemd unit:
+### 1-Command Replace / Upgrade Existing 9Router (Recommended)
+Build the bundle from Windows PowerShell (`scripts/package-linux.ps1`), upload `dist/9router-gateway-linux-amd64.tar.gz` to the Linux server, and run `install.sh`:
+
+```bash
+mkdir -p /tmp/9router-up && tar -xzf 9router-gateway-linux-amd64.tar.gz -C /tmp/9router-up
+sudo INITIAL_PASSWORD='your-admin-password' bash /tmp/9router-up/install.sh
+rm -rf /tmp/9router-up
+```
+
+`install.sh` automatically:
+1. Backs up any existing `~/.9router/db/data.sqlite` (`*.bak.<timestamp>`).
+2. Gracefully stops previous `9router` / `pm2` / `systemd` processes.
+3. Installs to `/opt/9router-gateway` (preserving an existing `/opt/9router-gateway/.env` and reusing existing SQLite DB / accounts / cookies).
+4. Ensures `9router@0.5.119` dashboard runtime is present, enables `9router-gateway.service`, and verifies `/health`.
+
+### Manual Bare-Metal Steps
 
 ```bash
 sudo mkdir -p /opt/9router-gateway
