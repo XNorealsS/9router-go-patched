@@ -28,10 +28,10 @@
    - **Egress Proxy Pools (`internal/handlers/chat/connections.go`)**: Supports `http`, `https`, `socks5`, and `socks5h`; enforces `strictProxy` fail-closed behavior; redacts proxy credentials from logs via `url.URL.Redacted()`.
    - **MITM Proxy (`internal/mitm/server.go`)**: Binds strictly to `127.0.0.1:443` and drops bodies exceeding 10 MiB.
 
-5. **Database & File Permissions (`internal/db/client.go`, `internal/db/accounts.go`)**
-   - SQLite database directory is restricted to `0700` and database file to `0600` on open.
+5. **Database & File Permissions (`internal/db/client.go`, `internal/db/accounts.go`, `internal/db/crypto.go`)**
+   - SQLite database directory is restricted to `0700` and database file to `0600` on open; per-connection PRAGMAs (`busy_timeout=5000`, `WAL`, `foreign_keys=ON`) are enforced via DSN so all pool connections share identical concurrency/integrity settings.
+   - **Optional Credential Encryption at Rest (`CREDENTIAL_ENCRYPTION_KEY`)**: When `CREDENTIAL_ENCRYPTION_KEY` is configured (64-hex raw key, base64 32-byte key, or passphrase), secret fields in `providerConnections.data` (`apiKey`, `accessToken`, `refreshToken`, `idToken`, `cookie`, `pat`, `token`) are encrypted with AES-256-GCM (`enc:v1:...`), existing plaintext rows are migrated on startup (`MigrateEncryptConnections`), and encrypted rows refuse to fall back silently if the key is missing. When unset (for Next.js dashboard SQLite sharing), plaintext mode remains backward-compatible and emits a startup warning if `HOST` is non-loopback.
    - All SQL queries use parameterized placeholders; `json_set` paths quote model names (`$."modelLock_<model>"`) to prevent JSON path injection.
-   - **Note**: Upstream API keys and OAuth tokens in `providerConnections.data` are stored in plaintext JSON for compatibility with the shared 9Router Next.js SQLite schema. Protect host filesystem access accordingly.
 
 6. **Self-Updater Integrity & Secret Hygiene (`internal/updater/updater.go`, `internal/proxy/executor/qoder.go`)**
    - `CheckUpdate` and `PerformSelfUpdateVerified` require `https://` + `AssertPublicURL` + `NewSSRFSafeTransport()` (overridable only via `ALLOW_INSECURE_UPDATE=true`), cap manifests at `1 MiB` and binaries at `128 MiB`, and refuse self-updates without SHA-256 checksum verification (`ALLOW_UNVERIFIED_UPDATE=true` to bypass).
@@ -40,7 +40,7 @@
 ## Known Security Limitations
 
 - **No Built-in Rate Limiter on Proxy Endpoints**: Operators exposing `9router-go` beyond localhost should enforce rate limiting at a reverse proxy (nginx/Caddy/Cloudflare).
-- **SQLite Cleartext Credentials**: Required for schema compatibility with the upstream 9Router dashboard.
+- **Plaintext Mode Without `CREDENTIAL_ENCRYPTION_KEY`**: Required when sharing `data.sqlite` directly with an unencrypted Next.js dashboard process; Linux server deployments should set `CREDENTIAL_ENCRYPTION_KEY`.
 
 ## Reporting Vulnerabilities
 

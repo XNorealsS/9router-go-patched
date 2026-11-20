@@ -18,14 +18,20 @@ Documented technical debt, concurrency risks, resource leaks, and planned archit
 
 ## 🟡 Open Medium Items (Priority 3: Code Robustness & Performance)
 
-- **OpenCode Go `/zen/go/v1/messages` Format Mismatch Risk**: `ForwardOpencodeGo` (`internal/proxy/executor/providers.go`) switches upstream path to `/zen/go/v1/messages` for `opencodeGoMessagesModels` without verifying or converting non-Anthropic request payloads before forwarding.
-- **Single-Writer Daily Usage Aggregation**: `upsertDailyUsage` (`internal/handlers/chat/usage.go`) merges JSON blobs in-memory under a process-local mutex; multi-process deployments against one SQLite file can drop concurrent increments.
-- **Plaintext Upstream Credentials in SQLite**: `providerConnections.data` stores API keys and OAuth tokens in cleartext JSON for compatibility with the shared Next.js dashboard (DB file permissions are restricted to `0600` on POSIX).
-- **Unvalidated Live Antigravity Execution**: Go test execution and live Antigravity protocol validation remain `BLOCKED` when Go or authorized Google/Antigravity credentials are absent (see `ANTIGRAVITY_COMPATIBILITY.md`).
+- **Plaintext Mode When `CREDENTIAL_ENCRYPTION_KEY` Is Unset**: Setting `CREDENTIAL_ENCRYPTION_KEY` enables AES-256-GCM at-rest encryption for provider secrets; when left unset (for Next.js dashboard SQLite compatibility), secrets remain cleartext JSON protected only by `0600` POSIX permissions.
+- **Arbitrary HTTP `image_url` in Gemini Translator**: Non-Google HTTP image URLs still emit `fileData{mimeType: "image/*"}`, which Google's Gemini API generally rejects unless the URI points to Google Files API.
+- **Unvalidated Live Antigravity Execution**: Full Go unit/race tests (`go test -race -count=1 ./...`), `go vet`, and `govulncheck` now pass locally (`go1.27.4`), but live Antigravity upstream protocol validation remains `BLOCKED` without authorized Antigravity OAuth credentials (see `ANTIGRAVITY_COMPATIBILITY.md`).
 
 ---
 
 ## ✅ Resolved Items
+
+- **Pass-3 Production Readiness & Hardening (v1.8.5)**:
+  - **OpenCode Go `/zen/go/v1/messages` Request & Response Translation (`internal/translator/claude.go`, `internal/proxy/executor/providers.go`)**: Added `TranslateOpenAIToClaudeRequest`, `TranslateClaudeResponseToOpenAI`, and `TranslateClaudeStreamToOpenAI`; `ForwardOpencodeGo` now translates OpenAI requests to Anthropic Messages format and converts non-stream/SSE responses + token usage back accurately (with `proxy.DoRequest` status validation and test coverage).
+  - **Multi-Process Safe `usageDaily` & Pool PRAGMAs (`internal/db/usage.go`, `internal/db/client.go`, `internal/handlers/chat/usage.go`)**: Replaced read-modify-`INSERT OR REPLACE` outside transactions with `MergeUsageDaily` inside SQLite `BEGIN IMMEDIATE`, and embedded `_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)` in `sqliteDSN` so every pooled connection inherits identical WAL/timeout/FK settings (`TestMergeUsageDaily_ConcurrentMultiHandleAtomic` passes across concurrent `*sql.DB` pools).
+  - **Opt-In AES-256-GCM Credential Encryption at Rest (`internal/db/crypto.go`, `internal/db/repos.go`, `internal/handlers/oauth/oauth.go`, `internal/handlers/chat/gemini_handler.go`, `cmd/9router-go/main.go`)**: Protects `apiKey`/`accessToken`/`refreshToken`/`idToken`/`cookie`/`pat`/`token` via `CREDENTIAL_ENCRYPTION_KEY` while preserving `json_set` lock compatibility and legacy plaintext compatibility; migrates plaintext rows on startup (`MigrateEncryptConnections`) and warns when binding non-loopback without a key.
+  - **Non-Colliding Gemini Tool Call IDs (`internal/translator/gemini.go`)**: Replaced `len(toolCalls)` / timestamp-based IDs with monotonic `atomic.Uint64` (`geminiToolCallSeq`) across both streaming and non-streaming responses (`TestTranslateGeminiResponseToOpenAI_UniqueToolCallIDsAcrossTurns`).
+  - **Windows Cross-Platform & Nil-Repo Safety (`internal/handlers/chat/resolution.go`, `internal/mitm/mitm_test.go`)**: Guarded `h.Repo != nil` in `resolveModel`/`resolvePrefixProvider` (fixing `TestHandleModelsInfo` panic) and normalized `/` paths in `mitm_test.go`; added fallback support for `cachedContentToken` alongside `cachedContentTokenCount`.
 
 - **Pass-2 Engineering & Security Remediation (v1.8.5)**:
   - **Dial-Time SSRF Protection (`internal/handlerutil/ssrf.go`, `internal/handlers/media/headroom.go`)**: Added `NewSSRFSafeTransport()` enforcing IP checks via `net.Dialer.Control` at socket connect time, eliminating DNS-rebinding TOCTOU in `HeadroomHandler.SafeClient` and `internal/updater`.
