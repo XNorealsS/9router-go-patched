@@ -121,17 +121,26 @@ func firstActiveAPIKey(repo *db.Repo) (id, rawKey, preview string) {
 	return id, rawKey, p
 }
 
-func fileContainsGateway(path string) (bool, string) {
+func fileContainsGateway(path, baseRoot string) (bool, string) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return false, ""
 	}
+	gwBase := strings.ToLower(strings.TrimSpace(baseRoot))
 	text := string(b)
 	for _, line := range strings.Split(text, "\n") {
-		l := strings.ToLower(strings.TrimSpace(line))
-		if (strings.Contains(l, "base_url") || strings.Contains(l, "baseurl") || strings.Contains(l, "anthropic_base_url")) &&
-			(strings.Contains(l, "127.0.0.1:") || strings.Contains(l, "localhost:") || strings.Contains(l, ":20128")) {
-			return true, strings.TrimSpace(line)
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") || strings.HasPrefix(trim, "//") {
+			continue
+		}
+		l := strings.ToLower(trim)
+		hasKey := strings.Contains(l, "base_url") || strings.Contains(l, "baseurl") || strings.Contains(l, "anthropic_base_url")
+		if !hasKey {
+			continue
+		}
+		if (gwBase != "" && strings.Contains(l, gwBase)) ||
+			(strings.Contains(l, ":20128") && (strings.Contains(l, "127.0.0.1") || strings.Contains(l, "localhost") || strings.Contains(l, "0.0.0.0"))) {
+			return true, trim
 		}
 	}
 	return false, ""
@@ -158,16 +167,16 @@ func (h *GatewayPanelHandler) HandleIntegrationsGet(w http.ResponseWriter, r *ht
 
 	hermesDir := resolveHermesDir()
 	hermesCfg := filepath.Join(hermesDir, "config.yaml")
-	hermesLinked, hermesCur := fileContainsGateway(hermesCfg)
+	hermesLinked, hermesCur := fileContainsGateway(hermesCfg, baseRoot)
 
 	claudeCfg := filepath.Join(resolveClaudeDir(), "settings.json")
-	claudeLinked, claudeCur := fileContainsGateway(claudeCfg)
+	claudeLinked, claudeCur := fileContainsGateway(claudeCfg, baseRoot)
 
 	ocCfg := resolveOpenCodeConfigPath()
-	ocLinked, ocCur := fileContainsGateway(ocCfg)
+	ocLinked, ocCur := fileContainsGateway(ocCfg, baseRoot)
 
 	codexCfg := filepath.Join(resolveCodexDir(), "config.toml")
-	codexLinked, codexCur := fileContainsGateway(codexCfg)
+	codexLinked, codexCur := fileContainsGateway(codexCfg, baseRoot)
 
 	items := []cliIntegrationItem{
 		{
@@ -393,12 +402,17 @@ func applyHermesConfig(dir, baseV1, apiKey, model string) (string, error) {
 			out = append(out, line)
 			continue
 		}
-		if modelIndent == "" && (strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")) && trim != "" && !strings.HasPrefix(trim, "#") {
-			modelIndent = line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lineIndent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		if modelIndent == "" && lineIndent != "" && trim != "" && !strings.HasPrefix(trim, "#") {
+			modelIndent = lineIndent
 		}
 		indent := modelIndent
 		if indent == "" {
 			indent = "  "
+		}
+		if trim == "" || strings.HasPrefix(trim, "#") || lineIndent != indent {
+			out = append(out, line)
+			continue
 		}
 		switch {
 		case strings.HasPrefix(trim, "default:") || strings.HasPrefix(trim, "model:"):

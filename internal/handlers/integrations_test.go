@@ -27,12 +27,12 @@ func TestGatewayIntegrations_HermesClaudeOpenCodeCodex(t *testing.T) {
 	if err := os.MkdirAll(hermesDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	origHermes := "model:\n  default: \"anthropic/claude-opus-4.6\"\n  provider: \"auto\"\n  base_url: \"https://openrouter.ai/api/v1\"\n"
+	origHermes := "model:\n  default: \"anthropic/claude-opus-4.6\"\n  provider: \"auto\"\n  base_url: \"https://openrouter.ai/api/v1\"\n  # base_url: \"http://127.0.0.1:4000/v1\"\n"
 	if err := os.WriteFile(filepath.Join(hermesDir, "config.yaml"), []byte(origHermes), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	// 1. GET /api/gateway/integrations lists tools cleanly with redacted key
+	// 1. GET /api/gateway/integrations lists tools cleanly with redacted key and doesn't false-match commented localhost/port 4000
 	req := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:20128/api/gateway/integrations", nil)
 	req.Host = "127.0.0.1:20128"
 	req.Header.Set("X-API-Key", "sk-test-gw")
@@ -40,6 +40,20 @@ func TestGatewayIntegrations_HermesClaudeOpenCodeCodex(t *testing.T) {
 	r.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Hermes Agent") || !strings.Contains(rec.Body.String(), "127.0.0.1:20128/v1") {
 		t.Fatalf("unexpected integrations GET response (%d): %s", rec.Code, rec.Body.String())
+	}
+	var intResp struct {
+		Tools []struct {
+			ID     string `json:"id"`
+			Linked bool   `json:"linked"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &intResp); err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range intResp.Tools {
+		if tl.ID == "hermes" && tl.Linked {
+			t.Fatalf("expected hermes linked=false before apply (commented 127.0.0.1:4000 must not match)")
+		}
 	}
 
 	// 2. Apply to all 4 tools cleanly
