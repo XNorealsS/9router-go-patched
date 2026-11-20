@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -229,5 +230,20 @@ func TestSetAuthHeader_defaultScheme(t *testing.T) {
 	want := "Bearer sk-abc123"
 	if got != want {
 		t.Errorf("req.Header[Authorization] = %q, want %q", got, want)
+	}
+}
+
+func TestNewSSRFSafeTransport_BlocksLoopbackAndMetadata(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	client := &http.Client{Transport: NewSSRFSafeTransport()}
+	if _, err := client.Get(srv.URL); err == nil || !strings.Contains(err.Error(), "blocked connection to private/reserved IP") {
+		t.Fatalf("expected loopback dial to be blocked at connect time, got err=%v", err)
+	}
+	if _, err := client.Get("http://169.254.169.254/latest/meta-data/"); err == nil || !strings.Contains(err.Error(), "blocked connection to private/reserved IP") {
+		t.Fatalf("expected metadata dial to be blocked at connect time, got err=%v", err)
 	}
 }

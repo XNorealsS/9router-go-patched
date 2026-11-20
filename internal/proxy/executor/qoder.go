@@ -9,8 +9,10 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -130,8 +132,11 @@ func rsaEncryptBase64(data []byte) (string, error) {
 }
 
 func exchangePATtoJobToken(ctx context.Context, client *http.Client, pat string) (string, string, error) {
+	patSum := sha256.Sum256([]byte(pat))
+	cacheKey := hex.EncodeToString(patSum[:])
+
 	jobTokenCacheMu.Lock()
-	if entry, ok := jobTokenCache[pat]; ok && time.Now().Before(entry.expiresAt) {
+	if entry, ok := jobTokenCache[cacheKey]; ok && time.Now().Before(entry.expiresAt) {
 		jobTokenCacheMu.Unlock()
 		return entry.token, entry.userID, nil
 	}
@@ -158,7 +163,7 @@ func exchangePATtoJobToken(ctx context.Context, client *http.Client, pat string)
 	}
 	defer resp.Body.Close()
 
-	respBuf, _ := io.ReadAll(resp.Body)
+	respBuf, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return "", "", fmt.Errorf("exchange PAT failed (%d): %s", resp.StatusCode, string(respBuf))
 	}
@@ -196,7 +201,7 @@ func exchangePATtoJobToken(ctx context.Context, client *http.Client, pat string)
 	}
 	defer uResp.Body.Close()
 
-	uBuf, _ := io.ReadAll(uResp.Body)
+	uBuf, _ := io.ReadAll(io.LimitReader(uResp.Body, 1<<20))
 	var uData struct {
 		Data struct {
 			UserID string `json:"userId"`
@@ -223,7 +228,7 @@ func exchangePATtoJobToken(ctx context.Context, client *http.Client, pat string)
 
 	// Cache for 30 minutes
 	jobTokenCacheMu.Lock()
-	jobTokenCache[pat] = jobTokenCacheEntry{
+	jobTokenCache[cacheKey] = jobTokenCacheEntry{
 		token:     jobToken,
 		userID:    userID,
 		expiresAt: time.Now().Add(30 * time.Minute),

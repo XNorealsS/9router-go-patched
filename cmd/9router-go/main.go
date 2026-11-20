@@ -88,7 +88,7 @@ func main() {
 						return nil
 					}
 					fmt.Printf("Downloading update v%s...\n", info.LatestVersion)
-					if err := updater.PerformSelfUpdate(info.DownloadURL); err != nil {
+					if err := updater.PerformSelfUpdateVerified(info.DownloadURL, info.SHA256); err != nil {
 						return fmt.Errorf("update failed: %w", err)
 					}
 					fmt.Println("✅ 9router-go updated successfully!")

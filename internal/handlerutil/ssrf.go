@@ -3,8 +3,11 @@ package handlerutil
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strings"
+	"syscall"
+	"time"
 )
 
 // blockedHostnames are exact-match hostnames that are never allowed.
@@ -78,30 +81,63 @@ func AssertPublicURL(rawURL string) error {
 	}
 
 	for _, ip := range candidates {
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() || ip.IsMulticast() {
+		if isBlockedIP(ip) {
 			return fmt.Errorf("blocked URL: private IP")
-		}
-		if v4 := ip.To4(); v4 != nil {
-			ipInt := ip4ToUint32(v4)
-			for _, r := range blockedIPv4Ranges {
-				mask := uint32(0xFFFFFFFF << (32 - r.mask))
-				if (ipInt & mask) == (r.network & mask) {
-					return fmt.Errorf("blocked URL: private IP")
-				}
-			}
-		} else {
-			// IPv6: block loopback, link-local, unique-local
-			h := ip.String()
-			if h == "::1" || h == "::" {
-				return fmt.Errorf("blocked URL: private IP")
-			}
-			if strings.HasPrefix(h, "fe80:") || strings.HasPrefix(h, "fc") || strings.HasPrefix(h, "fd") {
-				return fmt.Errorf("blocked URL: private IP")
-			}
 		}
 	}
 
 	return nil
+}
+
+func isBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ipInt := ip4ToUint32(v4)
+		for _, r := range blockedIPv4Ranges {
+			mask := uint32(0xFFFFFFFF << (32 - r.mask))
+			if (ipInt & mask) == (r.network & mask) {
+				return true
+			}
+		}
+		return false
+	}
+	h := strings.ToLower(ip.String())
+	if h == "::1" || h == "::" {
+		return true
+	}
+	if strings.HasPrefix(h, "fe80:") || strings.HasPrefix(h, "fc") || strings.HasPrefix(h, "fd") {
+		return true
+	}
+	return false
+}
+
+// NewSSRFSafeTransport returns an http.Transport whose DialContext validates the
+// actual connected IP address at socket connect time via net.Dialer.Control,
+// closing DNS-rebinding TOCTOU gaps.
+func NewSSRFSafeTransport() *http.Transport {
+	dialer := &net.Dialer{
+		Timeout:   15 * time.Second,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return fmt.Errorf("blocked connection: invalid address %q", address)
+			}
+			ip := net.ParseIP(host)
+			if isBlockedIP(ip) {
+				return fmt.Errorf("blocked connection to private/reserved IP %s", host)
+			}
+			return nil
+		},
+	}
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = dialer.DialContext
+	return t
 }
 
 func ip4ToUint32(ip net.IP) uint32 {

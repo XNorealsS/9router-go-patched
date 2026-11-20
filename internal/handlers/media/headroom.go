@@ -35,23 +35,31 @@ var proxyLoopbackHosts = map[string]bool{"localhost": true, "127.0.0.1": true, "
 // HeadroomHandler manages the external Headroom (token compression) proxy
 // process and reverse-proxies its dashboard.
 type HeadroomHandler struct {
-	Repo    *db.Repo
-	DataDir string
-	Client  *http.Client
+	Repo       *db.Repo
+	DataDir    string
+	Client     *http.Client
+	SafeClient *http.Client // SSRF-hardened client used for off-loopback targets
 }
 
 // NewHeadroomHandler creates a HeadroomHandler bound to the app data dir.
 func NewHeadroomHandler(repo *db.Repo) *HeadroomHandler {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 30 * time.Second
+	safeTransport := handlerutil.NewSSRFSafeTransport()
+	safeTransport.ResponseHeaderTimeout = 30 * time.Second
+	redirectPolicy := func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse // redirect: "manual"
+	}
 	return &HeadroomHandler{
 		Repo:    repo,
 		DataDir: config.ResolveDataDir(),
 		Client: &http.Client{
-			Transport: transport,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse // redirect: "manual"
-			},
+			Transport:     transport,
+			CheckRedirect: redirectPolicy,
+		},
+		SafeClient: &http.Client{
+			Transport:     safeTransport,
+			CheckRedirect: redirectPolicy,
 		},
 	}
 }
@@ -216,10 +224,14 @@ func (h *HeadroomHandler) HandleHeadroomProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	// If Headroom points off-loopback, enforce SSRF checks so private/metadata IPs cannot be targeted.
+	client := h.Client
 	if !headroom.IsLoopbackHeadroomUrl(rawURL) {
 		if err := handlerutil.AssertPublicURL(rawURL); err != nil {
 			writeHeadroomError(w, http.StatusForbidden, "Headroom URL blocked by SSRF policy", "SSRF_BLOCKED")
 			return
+		}
+		if h.SafeClient != nil {
+			client = h.SafeClient
 		}
 	}
 	sub := chi.URLParam(r, "*")
@@ -254,7 +266,7 @@ func (h *HeadroomHandler) HandleHeadroomProxy(w http.ResponseWriter, r *http.Req
 		req.Header.Del("Authorization")
 	}
 
-	resp, err := h.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		writeHeadroomError(w, http.StatusBadGateway, err.Error(), "")
 		return

@@ -3,10 +3,13 @@ package updater
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,12 +18,18 @@ import (
 	"sync"
 	"time"
 
+	"9router/proxy/internal/handlerutil"
 	"9router/proxy/internal/log"
+)
+
+const (
+	maxManifestBytes = 1 << 20   // 1 MiB cap for version.json
+	maxBinaryBytes   = 128 << 20 // 128 MiB cap for self-update binary
 )
 
 // CurrentVersion is the active 9router-go application version.
 // Can be set at build time via -ldflags "-X 9router/proxy/internal/updater.CurrentVersion=1.8.4"
-var CurrentVersion = "1.8.4"
+var CurrentVersion = "1.8.5"
 
 // DefaultUpdateURL is the default remote version manifest URL.
 var DefaultUpdateURL = "https://raw.githubusercontent.com/luqman-v1/9router-go/main/version.json"
@@ -37,6 +46,7 @@ type UpdateInfo struct {
 	LatestVersion  string `json:"latestVersion"`
 	HasUpdate      bool   `json:"hasUpdate"`
 	DownloadURL    string `json:"downloadUrl"`
+	SHA256         string `json:"sha256,omitempty"`
 	ReleaseNotes   string `json:"releaseNotes"`
 	GoVersion      string `json:"goVersion"`
 	OS             string `json:"os"`
@@ -64,11 +74,35 @@ func GetCachedInfo() *UpdateInfo {
 	}
 }
 
+func validateUpdateURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid update URL: %w", err)
+	}
+	if strings.EqualFold(u.Scheme, "https") {
+		return handlerutil.AssertPublicURL(rawURL)
+	}
+	if os.Getenv("ALLOW_INSECURE_UPDATE") == "true" && (strings.EqualFold(u.Scheme, "http") || strings.EqualFold(u.Scheme, "https")) {
+		return nil
+	}
+	return fmt.Errorf("update URL must use https://")
+}
+
+func updateTransport() http.RoundTripper {
+	if os.Getenv("ALLOW_INSECURE_UPDATE") == "true" {
+		return http.DefaultTransport
+	}
+	return handlerutil.NewSSRFSafeTransport()
+}
+
 // CheckUpdate queries remote version endpoint and compares semver versions.
 func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	updateURL := os.Getenv("UPDATE_URL")
 	if updateURL == "" {
 		updateURL = DefaultUpdateURL
+	}
+	if err := validateUpdateURL(updateURL); err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", updateURL, nil)
@@ -76,7 +110,10 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 		return nil, fmt.Errorf("create update check request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
+	client := &http.Client{
+		Timeout:   8 * time.Second,
+		Transport: updateTransport(),
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch update info: %w", err)
@@ -87,22 +124,30 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 		return nil, fmt.Errorf("update endpoint returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxManifestBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read update response body: %w", err)
 	}
 
 	var remote struct {
-		Version      string            `json:"version"`
-		DownloadURLs map[string]string `json:"downloadUrls"`
-		ReleaseNotes string            `json:"releaseNotes"`
+		Version       string            `json:"version"`
+		LatestVersion string            `json:"latestVersion"`
+		DownloadURL   string            `json:"downloadUrl"`
+		DownloadURLs  map[string]string `json:"downloadUrls"`
+		Checksums     map[string]string `json:"checksums"`
+		SHA256        string            `json:"sha256"`
+		ReleaseNotes  string            `json:"releaseNotes"`
 	}
 
 	if err := json.Unmarshal(body, &remote); err != nil {
 		return nil, fmt.Errorf("parse update JSON: %w", err)
 	}
 
-	latestVersion := strings.TrimPrefix(remote.Version, "v")
+	verStr := remote.Version
+	if verStr == "" {
+		verStr = remote.LatestVersion
+	}
+	latestVersion := strings.TrimPrefix(verStr, "v")
 	current := strings.TrimPrefix(CurrentVersion, "v")
 	hasUpdate := CompareVersions(latestVersion, current) > 0
 
@@ -111,12 +156,20 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	if downloadURL == "" {
 		downloadURL = remote.DownloadURLs["default"]
 	}
+	if downloadURL == "" {
+		downloadURL = remote.DownloadURL
+	}
+	sha := remote.Checksums[platformKey]
+	if sha == "" {
+		sha = remote.SHA256
+	}
 
 	info := &UpdateInfo{
 		CurrentVersion: CurrentVersion,
 		LatestVersion:  latestVersion,
 		HasUpdate:      hasUpdate,
 		DownloadURL:    downloadURL,
+		SHA256:         strings.ToLower(strings.TrimSpace(sha)),
 		ReleaseNotes:   remote.ReleaseNotes,
 		GoVersion:      runtime.Version(),
 		OS:             runtime.GOOS,
@@ -133,9 +186,23 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 }
 
 // PerformSelfUpdate downloads and safely replaces the active executable binary.
+// Refuses unverified binaries unless ALLOW_UNVERIFIED_UPDATE=true is set.
 func PerformSelfUpdate(downloadURL string) error {
+	return PerformSelfUpdateVerified(downloadURL, "")
+}
+
+// PerformSelfUpdateVerified downloads, verifies SHA-256 (required unless
+// ALLOW_UNVERIFIED_UPDATE=true), and atomically replaces the active binary.
+func PerformSelfUpdateVerified(downloadURL, expectedSHA256 string) error {
 	if downloadURL == "" {
 		return fmt.Errorf("missing download URL for platform %s_%s", runtime.GOOS, runtime.GOARCH)
+	}
+	if err := validateUpdateURL(downloadURL); err != nil {
+		return err
+	}
+	expectedSHA256 = strings.ToLower(strings.TrimSpace(expectedSHA256))
+	if expectedSHA256 == "" && os.Getenv("ALLOW_UNVERIFIED_UPDATE") != "true" {
+		return fmt.Errorf("refusing unverified self-update without SHA-256 checksum (set ALLOW_UNVERIFIED_UPDATE=true to override)")
 	}
 
 	execPath, err := os.Executable()
@@ -150,7 +217,11 @@ func PerformSelfUpdate(downloadURL string) error {
 
 	log.Info("updater", "starting download for auto-update", "url", downloadURL, "target", execPath)
 
-	resp, err := http.Get(downloadURL)
+	client := &http.Client{
+		Timeout:   60 * time.Second,
+		Transport: updateTransport(),
+	}
+	resp, err := client.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("download binary asset: %w", err)
 	}
@@ -169,11 +240,23 @@ func PerformSelfUpdate(downloadURL string) error {
 	tmpPath := tmpFile.Name()
 	defer os.Remove(tmpPath)
 
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	hasher := sha256.New()
+	limited := io.LimitReader(resp.Body, maxBinaryBytes+1)
+	n, err := io.Copy(io.MultiWriter(tmpFile, hasher), limited)
+	if err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("write binary asset to temp file: %w", err)
 	}
 	tmpFile.Close()
+	if n > maxBinaryBytes {
+		return fmt.Errorf("downloaded binary exceeds maximum size (%d bytes)", maxBinaryBytes)
+	}
+	if expectedSHA256 != "" {
+		actual := hex.EncodeToString(hasher.Sum(nil))
+		if actual != expectedSHA256 {
+			return fmt.Errorf("binary SHA-256 mismatch: got %s, want %s", actual, expectedSHA256)
+		}
+	}
 
 	// Grant executable permissions (rwxr-xr-x)
 	if err := os.Chmod(tmpPath, 0755); err != nil {
@@ -219,7 +302,7 @@ func StartBackgroundCheck(autoUpdate bool) {
 
 			if autoUpdate || os.Getenv("AUTO_UPDATE") == "true" {
 				log.Info("updater", "AUTO_UPDATE is enabled — initiating update...")
-				if err := PerformSelfUpdate(info.DownloadURL); err != nil {
+				if err := PerformSelfUpdateVerified(info.DownloadURL, info.SHA256); err != nil {
 					log.Error("updater", "auto-update failed", "error", err)
 				} else {
 					log.Info("updater", "update complete! Restarting process...")

@@ -232,7 +232,7 @@ func (h *ChatHandler) HandleTriggerUpdate(w http.ResponseWriter, r *http.Request
 		})
 		return
 	}
-	if err := updater.PerformSelfUpdate(info.DownloadURL); err != nil {
+	if err := updater.PerformSelfUpdateVerified(info.DownloadURL, info.SHA256); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("self-update failed: %v", err))
 		return
 	}
