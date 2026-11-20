@@ -7,11 +7,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
-// xaiClientID is the public OAuth client ID for xAI.
-const xaiClientID = "b1a00492-073a-47ea-816f-4c329264a828"
 const xaiTokenURL = "https://auth.x.ai/oauth2/token"
 
 func init() {
@@ -19,11 +18,14 @@ func init() {
 }
 
 // refreshXAI refreshes an xAI token using standard OAuth2 refresh_token grant.
-// xAI uses a public client (no client_secret needed).
 func refreshXAI(ctx context.Context, p *Params) (*TokenResult, error) {
+	clientID := os.Getenv("XAI_OAUTH_CLIENT_ID")
+	if clientID == "" {
+		return nil, fmt.Errorf("xAI OAuth client ID not configured (set XAI_OAUTH_CLIENT_ID)")
+	}
 	vals := url.Values{
 		"grant_type":    {"refresh_token"},
-		"client_id":     {xaiClientID},
+		"client_id":     {clientID},
 		"refresh_token": {p.RefreshToken},
 	}
 
@@ -40,7 +42,7 @@ func refreshXAI(ctx context.Context, p *Params) (*TokenResult, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("xAI read response: %w", err)
 	}
@@ -62,7 +64,8 @@ func refreshXAI(ctx context.Context, p *Params) (*TokenResult, error) {
 	}
 
 	return &TokenResult{
-		AccessToken: result.AccessToken,
-		ExpiresIn:   result.ExpiresIn,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresIn:    result.ExpiresIn,
 	}, nil
 }

@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,43 +31,44 @@ type OAuthConnectionData struct {
 
 // OAuthTokenResponse is the JSON response from a token refresh endpoint.
 type OAuthTokenResponse struct {
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	Scope       string `json:"scope,omitempty"`
-	TokenType   string `json:"token_type,omitempty"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token,omitempty"`
+	ExpiresIn    int    `json:"expires_in"`
+	Scope        string `json:"scope,omitempty"`
+	TokenType    string `json:"token_type,omitempty"`
 }
 
 // KnownOAuthConfigs maps provider IDs to their OAuth client configuration for token refresh.
-// Client secrets should be set via environment variables.
+// Client credentials must be supplied explicitly via environment variables.
 var KnownOAuthConfigs = map[string]OAuthClientConfig{
 	"antigravity": {
-		ClientID:     envOr("ANTIGRAVITY_OAUTH_CLIENT_ID", defaultAgClientID()),
-		ClientSecret: envOr("ANTIGRAVITY_OAUTH_CLIENT_SECRET", defaultAgClientSecret()),
+		ClientID:     envOr("ANTIGRAVITY_OAUTH_CLIENT_ID", ""),
+		ClientSecret: envOr("ANTIGRAVITY_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://oauth2.googleapis.com/token",
 	},
 	"xai": {
-		ClientID:     envOr("XAI_OAUTH_CLIENT_ID", "b1a00492-073a-47ea-816f-4c329264a828"),
+		ClientID:     envOr("XAI_OAUTH_CLIENT_ID", ""),
 		ClientSecret: envOr("XAI_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://auth.x.ai/oauth2/token",
 	},
 	"codex": {
-		ClientID:     envOr("CODEX_OAUTH_CLIENT_ID", "app_EMoamEEZ73f0CkXaXp7hrann"),
+		ClientID:     envOr("CODEX_OAUTH_CLIENT_ID", ""),
 		ClientSecret: envOr("CODEX_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://auth.openai.com/oauth/token",
 	},
 	"github": {
-		ClientID:     envOr("GITHUB_OAUTH_CLIENT_ID", "Iv1.b507a08c87ecfe98"),
+		ClientID:     envOr("GITHUB_OAUTH_CLIENT_ID", ""),
 		ClientSecret: envOr("GITHUB_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://github.com/login/oauth/access_token",
 	},
 	"iflow": {
-		ClientID:     envOr("IFLOW_OAUTH_CLIENT_ID", "10009311001"),
-		ClientSecret: envOr("IFLOW_OAUTH_CLIENT_SECRET", "4Z3YjXycVsQvyGF1etiNlIBB4RsqSDtW"),
+		ClientID:     envOr("IFLOW_OAUTH_CLIENT_ID", ""),
+		ClientSecret: envOr("IFLOW_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://iflow.cn/oauth/token",
 	},
 	"gemini-cli": {
-		ClientID:     envOr("GEMINI_CLI_OAUTH_CLIENT_ID", defaultAgClientID()),
-		ClientSecret: envOr("GEMINI_CLI_OAUTH_CLIENT_SECRET", defaultAgClientSecret()),
+		ClientID:     envOr("GEMINI_CLI_OAUTH_CLIENT_ID", ""),
+		ClientSecret: envOr("GEMINI_CLI_OAUTH_CLIENT_SECRET", ""),
 		TokenURL:     "https://oauth2.googleapis.com/token",
 	},
 	"kimi-coding": {
@@ -97,30 +100,47 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-func defaultAgClientID() string {
-	return "1071006060591-" + "tmhssin2h21lcre235vtolojh4g403ep" + ".apps." + "googleusercontent.com"
-}
-
-func defaultAgClientSecret() string {
-	return "GOCSPX-" + "K58FWR486LdLJ1mLB8sXC4z6qDAf"
-}
-
 // RefreshToken performs an OAuth token refresh for the given provider configuration.
-// Returns the new access token and expires_in duration.
+// Returns the new access token (and optional rotated refresh token) and expires_in duration.
 func RefreshToken(cfg OAuthClientConfig, refreshToken string) (*OAuthTokenResponse, error) {
+	return RefreshTokenWithContext(context.Background(), &http.Client{Timeout: 15 * time.Second}, cfg, refreshToken)
+}
+
+// RefreshTokenWithContext performs an OAuth token refresh using the given context and HTTP client.
+func RefreshTokenWithContext(ctx context.Context, client *http.Client, cfg OAuthClientConfig, refreshToken string) (*OAuthTokenResponse, error) {
+	if cfg.ClientID == "" || cfg.TokenURL == "" {
+		return nil, fmt.Errorf("OAuth client credentials not configured (set provider OAUTH_CLIENT_ID/SECRET env vars)")
+	}
+	if refreshToken == "" {
+		return nil, fmt.Errorf("missing refresh token")
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+
 	values := url.Values{
 		"client_id":     {cfg.ClientID},
-		"client_secret": {cfg.ClientSecret},
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 	}
-	resp, err := http.PostForm(cfg.TokenURL, values)
+	if cfg.ClientSecret != "" {
+		values.Set("client_secret", cfg.ClientSecret)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.TokenURL, bytes.NewBufferString(values.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("create OAuth refresh request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("OAuth refresh POST: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read OAuth response: %w", err)
 	}
@@ -184,8 +204,12 @@ func ParseRefreshResponse(body []byte) (*OAuthTokenResponse, error) {
 
 // BuildConnectionUpdate builds a partial ConnectionData map for DB update.
 func (r *OAuthTokenResponse) BuildConnectionUpdate() map[string]interface{} {
-	return map[string]interface{}{
+	update := map[string]interface{}{
 		"accessToken": r.AccessToken,
 		"expiresAt":   time.Now().Add(time.Duration(r.ExpiresIn) * time.Second).Format(time.RFC3339),
 	}
+	if r.RefreshToken != "" {
+		update["refreshToken"] = r.RefreshToken
+	}
+	return update
 }

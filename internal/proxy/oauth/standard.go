@@ -51,7 +51,7 @@ func doFormRefresh(ctx context.Context, client *http.Client, tokenURL string, va
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -75,8 +75,9 @@ func doFormRefresh(ctx context.Context, client *http.Client, tokenURL string, va
 	}
 
 	return &TokenResult{
-		AccessToken: result.AccessToken,
-		ExpiresIn:   result.ExpiresIn,
-		Scope:       result.Scope,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresIn:    result.ExpiresIn,
+		Scope:        result.Scope,
 	}, nil
 }

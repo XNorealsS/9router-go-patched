@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 )
 
 const claudeTokenURL = "https://api.anthropic.com/v1/oauth/token"
-const claudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
 func init() {
 	Register("claude", refreshClaude)
@@ -19,9 +19,13 @@ func init() {
 // refreshClaude refreshes an Anthropic Claude OAuth token.
 // Claude uses JSON body encoding for refresh (not form-urlencoded).
 func refreshClaude(ctx context.Context, p *Params) (*TokenResult, error) {
+	clientID := os.Getenv("CLAUDE_OAUTH_CLIENT_ID")
+	if clientID == "" {
+		return nil, fmt.Errorf("claude OAuth client ID not configured (set CLAUDE_OAUTH_CLIENT_ID)")
+	}
 	body := map[string]interface{}{
 		"grant_type":    "refresh_token",
-		"client_id":     claudeClientID,
+		"client_id":     clientID,
 		"refresh_token": p.RefreshToken,
 	}
 
@@ -43,7 +47,7 @@ func refreshClaude(ctx context.Context, p *Params) (*TokenResult, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, fmt.Errorf("claude read response: %w", err)
 	}
@@ -65,8 +69,9 @@ func refreshClaude(ctx context.Context, p *Params) (*TokenResult, error) {
 	}
 
 	return &TokenResult{
-		AccessToken: result.AccessToken,
-		ExpiresIn:   result.ExpiresIn,
-		Scope:       result.Scope,
+		AccessToken:  result.AccessToken,
+		RefreshToken: result.RefreshToken,
+		ExpiresIn:    result.ExpiresIn,
+		Scope:        result.Scope,
 	}, nil
 }
