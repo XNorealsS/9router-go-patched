@@ -100,12 +100,6 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// RefreshToken performs an OAuth token refresh for the given provider configuration.
-// Returns the new access token (and optional rotated refresh token) and expires_in duration.
-func RefreshToken(cfg OAuthClientConfig, refreshToken string) (*OAuthTokenResponse, error) {
-	return RefreshTokenWithContext(context.Background(), &http.Client{Timeout: 15 * time.Second}, cfg, refreshToken)
-}
-
 // RefreshTokenWithContext performs an OAuth token refresh using the given context and HTTP client.
 func RefreshTokenWithContext(ctx context.Context, client *http.Client, cfg OAuthClientConfig, refreshToken string) (*OAuthTokenResponse, error) {
 	if cfg.ClientID == "" || cfg.TokenURL == "" {
@@ -178,16 +172,6 @@ func (o *OAuthConnectionData) IsExpired() bool {
 		return true
 	}
 	return time.Now().After(exp.Add(-60 * time.Second))
-}
-
-// BuildRefreshPayload builds the URL-encoded form body for a token refresh request.
-func (c *OAuthClientConfig) BuildRefreshPayload(refreshToken string) string {
-	return url.Values{
-		"client_id":     {c.ClientID},
-		"client_secret": {c.ClientSecret},
-		"refresh_token": {refreshToken},
-		"grant_type":    {"refresh_token"},
-	}.Encode()
 }
 
 // ParseRefreshResponse parses the JSON response from a token refresh endpoint.

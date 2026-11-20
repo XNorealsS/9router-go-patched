@@ -96,24 +96,3 @@ func ForwardKiro(ctx context.Context, client *http.Client, cfg *providers.Provid
 	setAuth(headers, cfg, apiKey)
 	return DoRequest(ctx, client, "POST", cfg.BaseURL, headers, body)
 }
-
-// ForwardAzure forwards to Azure OpenAI with api-key header.
-// URL (endpoint) is constructed by the caller from env config.
-func ForwardAzure(ctx context.Context, client *http.Client, cfg *providers.ProviderConfig, apiKey string, body []byte, isStream bool, endpoint string) (*http.Response, error) {
-	headers := map[string]string{"Content-Type": "application/json", "api-key": apiKey}
-	streamHeaders(headers, isStream)
-	return DoRequest(ctx, client, "POST", endpoint, headers, body)
-}
-
-// ForwardCommandcode forwards to CommandCode with custom headers and forced streaming.
-// Body transformation (force stream=true) is done by the caller.
-func ForwardCommandcode(ctx context.Context, client *http.Client, cfg *providers.ProviderConfig, apiKey string, body []byte) (*http.Response, error) {
-	headers := map[string]string{
-		"Content-Type":          "application/json",
-		"Authorization":         "Bearer " + apiKey,
-		"x-command-code-version": "0.25.7",
-		"x-cli-environment":     "cli",
-		"Accept":                "text/event-stream",
-	}
-	return DoRequest(ctx, client, "POST", cfg.BaseURL, headers, body)
-}

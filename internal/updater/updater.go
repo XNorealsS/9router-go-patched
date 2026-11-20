@@ -35,8 +35,8 @@ var CurrentVersion = "1.8.5"
 var DefaultUpdateURL = "https://raw.githubusercontent.com/luqman-v1/9router-go/main/version.json"
 
 var (
-	cachedInfo   *UpdateInfo
-	cacheMu      sync.RWMutex
+	cachedInfo    *UpdateInfo
+	cacheMu       sync.RWMutex
 	lastCheckTime time.Time
 )
 
@@ -183,12 +183,6 @@ func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
 	cacheMu.Unlock()
 
 	return info, nil
-}
-
-// PerformSelfUpdate downloads and safely replaces the active executable binary.
-// Refuses unverified binaries unless ALLOW_UNVERIFIED_UPDATE=true is set.
-func PerformSelfUpdate(downloadURL string) error {
-	return PerformSelfUpdateVerified(downloadURL, "")
 }
 
 // PerformSelfUpdateVerified downloads, verifies SHA-256 (required unless

@@ -155,25 +155,6 @@ func TestHandleSearch_UpstreamError(t *testing.T) {
 
 // ---- New endpoint tests ----
 
-func TestEstimateAnthropicTokens(t *testing.T) {
-	tests := []struct {
-		name string
-		body string
-		want int
-	}{
-		{"empty", `{}`, 1},
-		{"simple message", `{"messages":[{"role":"user","content":"hello"}]}`, 2},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := chat.EstimateAnthropicTokens([]byte(tt.body))
-			if got != tt.want {
-				t.Errorf("chat.EstimateAnthropicTokens(%q) = %d, want %d", tt.body, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestHandleCountTokens(t *testing.T) {
 	handler := chat.NewChatHandler(nil)
 	body := `{"messages":[{"role":"user","content":"hello world"}]}`
@@ -275,56 +256,6 @@ func TestHandleModelsByKind_tts(t *testing.T) {
 	}
 }
 
-func TestHandleAudioVoices_missingProvider(t *testing.T) {
-	handler := chat.NewChatHandler(nil)
-	req := httptest.NewRequest("GET", "/v1/audio/voices", nil)
-	rec := httptest.NewRecorder()
-
-	handler.HandleAudioVoices(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
-	}
-}
-
-func TestHandleAudioVoices_unknownProvider(t *testing.T) {
-	handler := chat.NewChatHandler(nil)
-	req := httptest.NewRequest("GET", "/v1/audio/voices?provider=nonexistent", nil)
-	rec := httptest.NewRecorder()
-
-	handler.HandleAudioVoices(rec, req)
-
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected 404, got %d", rec.Code)
-	}
-}
-
-func TestHandleAudioVoices_elevenlabs(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"voices":[{"voice_id":"21m00Tcm4TlvDq8ikWAM","name":"Rachel"}]}`))
-	}))
-	defer upstream.Close()
-
-	handler := chat.NewChatHandler(nil)
-	req := httptest.NewRequest("GET", "/v1/audio/voices?provider=elevenlabs", nil)
-	rec := httptest.NewRecorder()
-	handler.Client = upstream.Client()
-	handler.HandleAudioVoices(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	if resp["voices"] == nil {
-		t.Errorf("expected voices in response, got %v", resp)
-	}
-}
-
 func TestCountValueChars(t *testing.T) {
 	tests := []struct {
 		name string
@@ -344,49 +275,6 @@ func TestCountValueChars(t *testing.T) {
 			got := chat.CountValueChars(tt.v)
 			if got != tt.want {
 				t.Errorf("chat.CountValueChars(%v) = %d, want %d", tt.v, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestMessageContentChars(t *testing.T) {
-	tests := []struct {
-		name string
-		c    any
-		want int
-	}{
-		{"nil", nil, 0},
-		{"string", "hello world", 11},
-		{"content blocks", []any{map[string]any{"type": "text", "text": "hi"}}, 2},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := chat.MessageContentChars(tt.c)
-			if got != tt.want {
-				t.Errorf("chat.MessageContentChars(%v) = %d, want %d", tt.c, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestContentBlockChars(t *testing.T) {
-	tests := []struct {
-		name string
-		blk  any
-		want int
-	}{
-		{"nil", nil, 0},
-		{"text", map[string]any{"type": "text", "text": "hello"}, 5},
-		{"tool_use", map[string]any{"type": "tool_use", "name": "get_weather", "input": `{"city":"NYC"}`}, 25},
-		{"tool_result", map[string]any{"type": "tool_result", "content": "sunny"}, 5},
-		{"thinking", map[string]any{"type": "thinking", "thinking": "hmm"}, 3},
-		{"unknown type", map[string]any{"type": "unknown", "data": "test"}, 19},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := chat.ContentBlockChars(tt.blk)
-			if got != tt.want {
-				t.Errorf("chat.ContentBlockChars(%v) = %d, want %d", tt.blk, got, tt.want)
 			}
 		})
 	}
@@ -454,7 +342,6 @@ func setupFakeOpenAIUpstream(t *testing.T) *httptest.Server {
 		w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`))
 	}))
 }
-
 
 func TestHandleWebFetch_missingFields(t *testing.T) {
 	database, cleanup := setupEmbeddingsTestDB(t)

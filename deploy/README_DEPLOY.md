@@ -23,7 +23,7 @@ cd /opt/9router-gateway
 cp .env.example .env
 # Set HOST=0.0.0.0 (or 127.0.0.1 behind Nginx/Caddy), INITIAL_PASSWORD, and JWT_SECRET
 chmod 600 .env
-chmod +x bin/9router-go bin/start-gateway.sh
+chmod +x bin/9router-go bin/start.sh
 
 # Pre-install companion Next.js dashboard runtime once (requires Node >= 20.18.1):
 npm install -g 9router@0.5.119

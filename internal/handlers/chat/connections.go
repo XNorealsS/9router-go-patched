@@ -211,10 +211,6 @@ func (h *ChatHandler) GetClientForConnection(connData *ConnectionData) *http.Cli
 	return h.Client
 }
 
-func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Client {
-	return h.GetClientForConnection(connData)
-}
-
 func (h *ChatHandler) getClientForConnectionChecked(connData *ConnectionData) (*http.Client, error) {
 	if connData == nil {
 		return h.Client, nil

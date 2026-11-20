@@ -1,10 +1,9 @@
 package mitm
 
 import (
-	"fmt"
 	"9router/proxy/internal/log"
-		"os"
-	"path/filepath"
+	"fmt"
+	"os"
 )
 
 // Manager handles MITM proxy lifecycle.
@@ -94,18 +93,4 @@ func (m *Manager) Status() map[string]any {
 	status["cert_dir"] = CertDir(m.baseDir)
 
 	return status
-}
-
-// ConfigFilePath returns the path to the MITM config file.
-func ConfigFilePath(baseDir string) string {
-	return filepath.Join(MITMDir(baseDir), "config.json")
-}
-
-// LogDir returns the MITM log directory.
-func LogDir(baseDir string) string {
-	d := filepath.Join(MITMDir(baseDir), "logs")
-	if err := os.MkdirAll(d, 0700); err != nil {
-		log.Warn("mitm", "create log dir failed", "dir", d, "error", err)
-	}
-	return d
 }

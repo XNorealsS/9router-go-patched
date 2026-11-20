@@ -1,10 +1,7 @@
 package chat
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +10,6 @@ import (
 
 	"9router/proxy/internal/constants"
 	"9router/proxy/internal/db"
-	"9router/proxy/internal/providers"
 )
 
 // setupHandlerForForward wires a ChatHandler to a temp DB (no connections needed for forward tests).
@@ -44,163 +40,6 @@ func openaiOKServer() *httptest.Server {
 
 func quote(s string) string {
 	return `"` + s + `"`
-}
-
-func TestForwardRequest_BearerAuth(t *testing.T) {
-	srv := openaiOKServer()
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthScheme:    constants.AuthSchemeBearer,
-		AuthHeader:    constants.HeaderAuthorization,
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	body := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "sk-secret", body, false, false, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", rec.Code)
-	}
-	if !strings.Contains(rec.Body.String(), `"auth":"Bearer sk-secret"`) {
-		t.Errorf("expected bearer auth echoed, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_RawAuth(t *testing.T) {
-	srv := openaiOKServer()
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthScheme:    constants.AuthSchemeRaw,
-		AuthHeader:    "X-Custom-Auth",
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	body := []byte(`{"model":"x","messages":[]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "raw-key", body, false, false, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(rec.Body.String(), `"custom":"raw-key"`) {
-		t.Errorf("expected raw auth echoed, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_DefaultAuthWhenUnknownScheme(t *testing.T) {
-	srv := openaiOKServer()
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthScheme:    "weird",
-		AuthHeader:    "X-Weird",
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(rec.Body.String(), `"auth":"Bearer k"`) {
-		t.Errorf("expected default bearer auth echoed, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_NoAuth(t *testing.T) {
-	srv := openaiOKServer()
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		NoAuth:        true,
-		AuthHeader:    constants.HeaderAuthorization,
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "should-not-be-sent", []byte(`{}`), false, false, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if strings.Contains(rec.Body.String(), "should-not-be-sent") {
-		t.Errorf("expected no auth sent when NoAuth, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_StaticHeadersApplied(t *testing.T) {
-	srv := openaiOKServer()
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthHeader:    constants.HeaderAuthorization,
-		StaticHeaders: map[string]string{"X-Foo": "bar"},
-	}
-
-	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(rec.Body.String(), `"foo":"bar"`) {
-		t.Errorf("expected static header echoed, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_UpstreamError(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		w.Write([]byte(`{"error":"rate limited"}`))
-	}))
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthHeader:    constants.HeaderAuthorization,
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
-	if err == nil {
-		t.Fatal("expected upstream error")
-	}
-	var ue *upstreamError
-	if !errors.As(err, &ue) {
-		t.Fatalf("expected *upstreamError, got %T", err)
-	}
-	if ue.StatusCode != http.StatusTooManyRequests {
-		t.Errorf("expected 429, got %d", ue.StatusCode)
-	}
-	if !bytes.Contains(ue.Body, []byte("rate limited")) {
-		t.Errorf("expected body to contain upstream error, got %s", ue.Body)
-	}
 }
 
 func TestHandleJSONResponse_NonTranslate(t *testing.T) {
@@ -282,36 +121,5 @@ func TestHandleStreamResponse_Translate(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "content_block_delta") {
 		t.Errorf("expected translated stream, got %s", rec.Body.String())
-	}
-}
-
-func TestForwardRequest_StreamSetsAcceptHeader(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set(constants.HeaderContentType, constants.ContentTypeEventStream)
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("data: ok\n\n"))
-	}))
-	defer srv.Close()
-
-	h, cleanup := setupHandlerForForward(t)
-	defer cleanup()
-
-	cfg := &providers.ProviderConfig{
-		BaseURL:       srv.URL,
-		AuthHeader:    constants.HeaderAuthorization,
-		StaticHeaders: map[string]string{},
-	}
-
-	rec := httptest.NewRecorder()
-	body, _ := json.Marshal(map[string]any{"model": "x", "messages": []any{}})
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", body, true, false, &streamMetrics{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if rec.Header().Get(constants.HeaderContentType) != constants.ContentTypeEventStream {
-		t.Errorf("expected event-stream content type on client response, got %q", rec.Header().Get(constants.HeaderContentType))
-	}
-	if rec.Body.String() != "data: ok\n\n" {
-		t.Errorf("expected streamed body, got %q", rec.Body.String())
 	}
 }

@@ -12,10 +12,10 @@ type ModelPricing struct {
 // Lookup uses longest-prefix matching so "claude-sonnet-4" catches
 // "claude-sonnet-4.5", "claude-sonnet-4-20250514", etc.
 var pricingTable = map[string]ModelPricing{
-	"claude-sonnet-4": {InputPer1M: 3.0, OutputPer1M: 15.0},
-	"claude-haiku":    {InputPer1M: 0.25, OutputPer1M: 1.25},
+	"claude-sonnet-4":   {InputPer1M: 3.0, OutputPer1M: 15.0},
+	"claude-haiku":      {InputPer1M: 0.25, OutputPer1M: 1.25},
 	"deepseek-v4-flash": {InputPer1M: 0.07, OutputPer1M: 0.28},
-	"gpt-4o":          {InputPer1M: 2.5, OutputPer1M: 10.0},
+	"gpt-4o":            {InputPer1M: 2.5, OutputPer1M: 10.0},
 }
 
 // defaultPricing is the fallback when no prefix matches.
@@ -52,9 +52,4 @@ func lookupPricing(model string) ModelPricing {
 	}
 
 	return bestPricing
-}
-
-// GetPricing returns the pricing for a model (exposed for external use / testing).
-func GetPricing(model string) ModelPricing {
-	return lookupPricing(model)
 }

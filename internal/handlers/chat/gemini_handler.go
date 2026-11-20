@@ -21,22 +21,6 @@ import (
 
 const maxGeminiRespBytes = 10 * 1024 * 1024
 
-// forwardGeminiNativeRequest handles forwarding for gemini-native providers (antigravity).
-func (h *ChatHandler) forwardGeminiNativeRequest(
-	ctx context.Context,
-	w http.ResponseWriter,
-	provider string,
-	cfg *providers.ProviderConfig,
-	apiKey string,
-	connectionID string,
-	body []byte,
-	isStream bool,
-	translateResponse bool,
-	metrics *streamMetrics,
-) error {
-	return h.forwardGeminiNativeRequestWithClient(ctx, h.Client, w, provider, cfg, apiKey, connectionID, body, isStream, translateResponse, metrics)
-}
-
 func (h *ChatHandler) forwardGeminiNativeRequestWithClient(
 	ctx context.Context,
 	client *http.Client,

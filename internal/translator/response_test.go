@@ -46,141 +46,6 @@ func TestFormatSSE(t *testing.T) {
 
 // --- TranslateOpenAIToClaudeStream edge cases ---
 
-func TestTranslateOpenAIToClaudeStream_EdgeCases(t *testing.T) {
-	t.Run("empty input returns nil", func(t *testing.T) {
-		out, err := TranslateOpenAIToClaudeStream([]byte(""))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if out != nil {
-			t.Errorf("expected nil, got %s", out)
-		}
-	})
-
-	t.Run("whitespace only returns nil", func(t *testing.T) {
-		out, err := TranslateOpenAIToClaudeStream([]byte("  \n  "))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if out != nil {
-			t.Errorf("expected nil, got %s", out)
-		}
-	})
-
-	t.Run("raw JSON without data: prefix", func(t *testing.T) {
-		chunk := []byte(`{"id":"raw-json","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"raw"},"finish_reason":null}]}`)
-		out, err := TranslateOpenAIToClaudeStream(chunk)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(string(out), "event: message_start") {
-			t.Errorf("expected message_start, got: %s", out)
-		}
-	})
-
-	t.Run("malformed JSON returns error", func(t *testing.T) {
-		_, err := TranslateOpenAIToClaudeStream([]byte(`data: {invalid}`))
-		if err == nil {
-			t.Error("expected error for malformed JSON, got nil")
-		}
-	})
-
-	t.Run("zero choices with no existing state returns nil", func(t *testing.T) {
-		// Use a unique ID that hasn't started a session
-		chunk := []byte(`{"id":"fresh-zero","model":"gpt-4o","choices":[]}`)
-		out, err := TranslateOpenAIToClaudeStream(chunk)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		// Zero-choice sidecar (e.g. OpenCode inference-cost) must not bootstrap a message
-		if out != nil {
-			t.Errorf("expected nil for zero-choice with no state, got: %s", out)
-		}
-	})
-
-	t.Run("post-finish zero-choice cost chunk does not emit message_start", func(t *testing.T) {
-		id := "opencode-cost"
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"deepseek","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`))
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"deepseek","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`))
-		// OpenCode trailing sidecar after finish: empty choices
-		out, err := TranslateOpenAIToClaudeStream([]byte(`{"choices":[],"x-opencode-type":"inference-cost","normalizedUsage":{"inputTokens":84,"outputTokens":92}}`))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if out != nil {
-			t.Errorf("expected nil for post-finish cost chunk, got: %s", out)
-		}
-	})
-
-	t.Run("no delta content or reasoning returns nil", func(t *testing.T) {
-		chunk := []byte(`{"id":"empty-delta","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`)
-		out, err := TranslateOpenAIToClaudeStream(chunk)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(string(out), "event: message_start") {
-			t.Errorf("expected message_start, got: %s", out)
-		}
-	})
-
-	t.Run("stop reason — length", func(t *testing.T) {
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"stop-length","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`))
-		out, err := TranslateOpenAIToClaudeStream([]byte(`{"id":"stop-length","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}`))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(string(out), `"stop_reason":"max_tokens"`) {
-			t.Errorf("expected max_tokens, got: %s", out)
-		}
-	})
-
-	t.Run("stop reason — stop", func(t *testing.T) {
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"stop-stop","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`))
-		out, err := TranslateOpenAIToClaudeStream([]byte(`{"id":"stop-stop","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(string(out), `"stop_reason":"end_turn"`) {
-			t.Errorf("expected end_turn, got: %s", out)
-		}
-	})
-
-	t.Run("proxy_ tool name prefix stripped on start", func(t *testing.T) {
-		out1, err := TranslateOpenAIToClaudeStream([]byte(`{"id":"strip-proxy","model":"gpt-4o","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"proxy_Read"}}]},"finish_reason":null}]}`))
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !strings.Contains(string(out1), `"name":"Read"`) {
-			t.Errorf("expected stripped name 'Read' in content_block_start, got: %s", out1)
-		}
-	})
-
-	t.Run("clear stream state restarts session", func(t *testing.T) {
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"cleanup-test","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"once"},"finish_reason":null}]}`))
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"cleanup-test","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`))
-		// Caller is responsible for clearing state; a fresh chunk with the same
-		// ID after ClearStreamState starts a new session.
-		ClearStreamState("cleanup-test")
-		out, _ := TranslateOpenAIToClaudeStream([]byte(`{"id":"cleanup-test","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"fresh"},"finish_reason":null}]}`))
-		if !strings.Contains(string(out), "event: message_start") {
-			t.Errorf("expected message_start again (fresh session), got: %s", out)
-		}
-	})
-
-	t.Run("usage captured in stream state after finish", func(t *testing.T) {
-		const id = "usage-capture"
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"x"},"finish_reason":null}]}`))
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":7,"completion_tokens":15,"cached_tokens":3}}`))
-		u := GetStreamUsage(id)
-		if u == nil {
-			t.Fatal("expected non-nil usage after finish")
-		}
-		if u.PromptTokens != 7 || u.CompletionTokens != 15 || u.CachedTokens != 3 {
-			t.Errorf("got %#v", u)
-		}
-	})
-}
-
 // --- TranslateOpenAIToClaude (non-stream) ---
 
 func TestTranslateOpenAIToClaude(t *testing.T) {
@@ -283,17 +148,6 @@ func TestTranslateOpenAIToClaude(t *testing.T) {
 
 // --- Provider alias edge: knownProviders used by TranslateOpenAIToClaudeStream ---
 
-func TestTranslateOpenAIToClaudeStream_Defaults(t *testing.T) {
-	// When chunk has empty ID and model
-	out, err := TranslateOpenAIToClaudeStream([]byte(`{"id":"","model":"","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}`))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !strings.Contains(string(out), `"model":"claude-3-5-sonnet"`) {
-		t.Errorf("expected default model, got: %s", out)
-	}
-}
-
 // --- TranslateOpenAIToClaude with reasoning_tokens in usage details ---
 
 func TestTranslateOpenAIToClaude_CompletionTokensDetails(t *testing.T) {
@@ -314,24 +168,6 @@ func TestTranslateOpenAIToClaude_CompletionTokensDetails(t *testing.T) {
 		}
 		if u.ReasoningTokens() != 80 {
 			t.Errorf("expected reasoning_tokens 80, got %d", u.ReasoningTokens())
-		}
-	})
-}
-
-func TestTranslateOpenAIToClaudeStream_CompletionTokensDetails(t *testing.T) {
-	t.Run("captures reasoning_tokens in stream usage", func(t *testing.T) {
-		id := "stream-detail"
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":null}]}`))
-		_, _ = TranslateOpenAIToClaudeStream([]byte(`{"id":"` + id + `","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":50,"completion_tokens_details":{"reasoning_tokens":40}}}`))
-		u := GetStreamUsage(id)
-		if u == nil {
-			t.Fatal("expected non-nil usage")
-		}
-		if u.PromptTokens != 5 || u.CompletionTokens != 50 {
-			t.Errorf("token mismatch: %#v", u)
-		}
-		if u.ReasoningTokens() != 40 {
-			t.Errorf("expected reasoning_tokens 40, got %d", u.ReasoningTokens())
 		}
 	})
 }

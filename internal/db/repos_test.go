@@ -84,60 +84,6 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	return db, cleanup
 }
 
-func TestValidateApiKey(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	// Seed data
-	_, err := db.Exec(`INSERT INTO apiKeys (id, key, name, machineId, isActive, createdAt) VALUES
-		('1', 'valid-key', 'Test Key 1', 'mac-1', 1, '2026-07-18T00:00:00Z'),
-		('2', 'inactive-key', 'Test Key 2', 'mac-2', 0, '2026-07-18T00:00:00Z');`)
-	if err != nil {
-		t.Fatalf("failed to seed apiKeys: %v", err)
-	}
-
-	repo := NewRepo(db)
-
-	// Test valid key
-	valid, err := repo.ValidateApiKey("valid-key")
-	if err != nil {
-		t.Errorf("ValidateApiKey returned error: %v", err)
-	}
-	if !valid {
-		t.Error("expected valid-key to be valid")
-	}
-
-	// Test inactive key
-	inactive, err := repo.ValidateApiKey("inactive-key")
-	if err != nil {
-		t.Errorf("ValidateApiKey returned error: %v", err)
-	}
-	if inactive {
-		t.Error("expected inactive-key to be invalid")
-	}
-
-	// Test non-existent key
-	nonexistent, err := repo.ValidateApiKey("nonexistent-key")
-	if err != nil {
-		t.Errorf("ValidateApiKey returned error: %v", err)
-	}
-	if nonexistent {
-		t.Error("expected nonexistent-key to be invalid")
-	}
-
-	// Test GetApiKeyByKey
-	keyObj, err := repo.GetApiKeyByKey("valid-key")
-	if err != nil {
-		t.Errorf("GetApiKeyByKey returned error: %v", err)
-	}
-	if keyObj == nil {
-		t.Fatal("expected key details to be returned")
-	}
-	if keyObj.ID != "1" || keyObj.Key != "valid-key" || *keyObj.Name != "Test Key 1" || keyObj.IsActive != 1 {
-		t.Errorf("unexpected APIKey fields: %+v", keyObj)
-	}
-}
-
 func TestGetProviderConnections(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -260,48 +206,6 @@ func TestModelAliases(t *testing.T) {
 	}
 	if aliases["gpt-4"] != "gpt-4o" || aliases["claude-3"] != "claude-3-5-sonnet" || aliases["raw-model"] != "gpt-4-raw" {
 		t.Errorf("unexpected aliases mapping: %+v", aliases)
-	}
-}
-
-func TestCombos(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	// Seed data
-	_, err := db.Exec(`INSERT INTO combos (id, name, kind, models, createdAt, updatedAt) VALUES
-		('c1', 'combo-1', 'chat', '[{"model":"gpt-4o","weight":1}]', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z'),
-		('c2', 'combo-2', NULL, '[]', '2026-07-18T00:00:00Z', '2026-07-18T00:00:00Z');`)
-	if err != nil {
-		t.Fatalf("failed to seed combos: %v", err)
-	}
-
-	repo := NewRepo(db)
-
-	// Test GetComboByName
-	combo, err := repo.GetComboByName("combo-1")
-	if err != nil {
-		t.Errorf("GetComboByName failed: %v", err)
-	}
-	if combo == nil || combo.ID != "c1" || combo.Models != `[{"model":"gpt-4o","weight":1}]` {
-		t.Errorf("unexpected combo by name: %+v", combo)
-	}
-
-	// Test GetComboById
-	combo, err = repo.GetComboById("c2")
-	if err != nil {
-		t.Errorf("GetComboById failed: %v", err)
-	}
-	if combo == nil || combo.Name != "combo-2" || combo.Kind != nil {
-		t.Errorf("unexpected combo by id: %+v", combo)
-	}
-
-	// Test GetCombos
-	combos, err := repo.GetCombos()
-	if err != nil {
-		t.Errorf("GetCombos failed: %v", err)
-	}
-	if len(combos) != 2 {
-		t.Errorf("expected 2 combos, got %d", len(combos))
 	}
 }
 
@@ -632,54 +536,6 @@ func TestGetProxyPool_NotFound(t *testing.T) {
 
 // --- usage tests ---
 
-func TestGetUsageDaily_Exists(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS usageDaily (
-		dateKey TEXT PRIMARY KEY,
-		data TEXT NOT NULL
-	);`)
-	if err != nil {
-		t.Fatalf("failed to create usageDaily table: %v", err)
-	}
-
-	_, err = db.Exec(`INSERT INTO usageDaily (dateKey, data) VALUES (?, ?)`,
-		"2026-07-18", `{"requests":10,"tokens":5000}`,
-	)
-	if err != nil {
-		t.Fatalf("failed to insert usage: %v", err)
-	}
-
-	repo := NewRepo(db)
-	data, err := repo.GetUsageDaily("2026-07-18")
-	if err != nil {
-		t.Fatalf("GetUsageDaily failed: %v", err)
-	}
-	if data != `{"requests":10,"tokens":5000}` {
-		t.Errorf("unexpected data: '%s'", data)
-	}
-}
-
-func TestGetUsageDaily_NotFound(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS usageDaily (
-		dateKey TEXT PRIMARY KEY,
-		data TEXT NOT NULL
-	);`)
-	if err != nil {
-		t.Fatalf("failed to create usageDaily table: %v", err)
-	}
-
-	repo := NewRepo(db)
-	_, err = repo.GetUsageDaily("2099-01-01")
-	if err == nil {
-		t.Error("expected error for non-existent dateKey")
-	}
-}
-
 func TestInsertUsageHistory(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
@@ -717,68 +573,6 @@ func TestInsertUsageHistory(t *testing.T) {
 	}
 	if provider != "openai" || model != "gpt-4" || promptTokens != 100 || status != "success" {
 		t.Errorf("unexpected row: provider=%s model=%s promptTokens=%d status=%s", provider, model, promptTokens, status)
-	}
-}
-
-func TestUpsertUsageDaily_Insert(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS usageDaily (
-		dateKey TEXT PRIMARY KEY,
-		data TEXT NOT NULL
-	);`)
-	if err != nil {
-		t.Fatalf("failed to create usageDaily table: %v", err)
-	}
-
-	repo := NewRepo(db)
-	err = repo.UpsertUsageDaily("2026-07-18", `{"requests":5}`)
-	if err != nil {
-		t.Fatalf("UpsertUsageDaily insert failed: %v", err)
-	}
-
-	data, err := repo.GetUsageDaily("2026-07-18")
-	if err != nil {
-		t.Fatalf("GetUsageDaily after insert failed: %v", err)
-	}
-	if data != `{"requests":5}` {
-		t.Errorf("unexpected data: '%s'", data)
-	}
-}
-
-func TestUpsertUsageDaily_Update(t *testing.T) {
-	db, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS usageDaily (
-		dateKey TEXT PRIMARY KEY,
-		data TEXT NOT NULL
-	);`)
-	if err != nil {
-		t.Fatalf("failed to create usageDaily table: %v", err)
-	}
-
-	repo := NewRepo(db)
-
-	// Insert first
-	err = repo.UpsertUsageDaily("2026-07-18", `{"requests":5}`)
-	if err != nil {
-		t.Fatalf("first upsert failed: %v", err)
-	}
-
-	// Replace
-	err = repo.UpsertUsageDaily("2026-07-18", `{"requests":15,"tokens":1000}`)
-	if err != nil {
-		t.Fatalf("second upsert failed: %v", err)
-	}
-
-	data, err := repo.GetUsageDaily("2026-07-18")
-	if err != nil {
-		t.Fatalf("GetUsageDaily after update failed: %v", err)
-	}
-	if data != `{"requests":15,"tokens":1000}` {
-		t.Errorf("expected replaced data, got '%s'", data)
 	}
 }
 

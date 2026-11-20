@@ -22,8 +22,7 @@ try {
 
 # Normalize LF line endings for Linux shell scripts
 foreach ($Pair in @(
-    @{ Src = "deploy\start-gateway.sh"; Dst = "bin\start-gateway.sh" },
-    @{ Src = "deploy\entrypoint.sh";    Dst = "bin\entrypoint.sh" }
+    @{ Src = "deploy\start.sh"; Dst = "bin\start.sh" }
 )) {
     $Content = (Get-Content -Raw (Join-Path $Root $Pair.Src)) -replace "`r`n", "`n"
     [System.IO.File]::WriteAllText((Join-Path $OutDir $Pair.Dst), $Content, [System.Text.UTF8Encoding]::new($false))

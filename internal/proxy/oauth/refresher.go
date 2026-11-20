@@ -4,7 +4,6 @@ package oauth
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"sync"
 )
@@ -46,12 +45,4 @@ func Get(provider string) Refresher {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
 	return registry[provider]
-}
-
-// Refresh calls the provider's refresher, or falls back to standard OAuth2.
-func Refresh(ctx context.Context, p *Params) (*TokenResult, error) {
-	if fn := Get(p.Provider); fn != nil {
-		return fn(ctx, p)
-	}
-	return nil, fmt.Errorf("no OAuth refresher for: %s", p.Provider)
 }

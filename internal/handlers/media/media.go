@@ -295,7 +295,9 @@ func (h *MediaHandler) forwardMiMoSpeech(w http.ResponseWriter, r *http.Request,
 	}
 
 	var data struct {
-		Error   *struct{ Message string `json:"message"` } `json:"error"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 		Choices []struct {
 			Message struct {
 				Audio struct {
@@ -600,11 +602,6 @@ func copySanitizedMediaRespHeaders(dst, src http.Header) {
 			dst.Add(k, v)
 		}
 	}
-}
-
-// BuildEmbeddingsURL converts a chat completions URL to an embeddings URL.
-func BuildEmbeddingsURL(baseURL string) string {
-	return buildEmbeddingsURL(baseURL)
 }
 
 func buildEmbeddingsURL(baseURL string) string {

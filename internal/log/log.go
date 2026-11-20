@@ -12,7 +12,6 @@
 package log
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -172,32 +171,10 @@ func init() {
 	}
 }
 
-// SetLevel changes the log level at runtime.
-func SetLevel(l Level) {
-	levelMu.Lock()
-	defer levelMu.Unlock()
-	currentLevel = l
-}
-
-// SetJSONFormat toggles JSON vs Text log format.
-func SetJSONFormat(enable bool) {
-	levelMu.Lock()
-	defer levelMu.Unlock()
-	isJSONFormat = enable
-}
-
 func shouldLog(l Level) bool {
 	levelMu.RLock()
 	defer levelMu.RUnlock()
 	return l >= currentLevel
-}
-
-// MaskSecret masks sensitive credentials (e.g. "sk-proj-12345678" -> "sk-p...5678").
-func MaskSecret(secret string) string {
-	if len(secret) <= 8 {
-		return "***"
-	}
-	return secret[:4] + "..." + secret[len(secret)-4:]
 }
 
 // Debug logs a debug-level message.
@@ -230,47 +207,6 @@ func Error(tag, msg string, kv ...any) {
 		return
 	}
 	output(LevelError, tag, msg, kv...)
-}
-
-// DebugCtx logs a debug-level message with request ID from context if present.
-func DebugCtx(ctx context.Context, tag, msg string, kv ...any) {
-	if !shouldLog(LevelDebug) {
-		return
-	}
-	outputCtx(ctx, LevelDebug, tag, msg, kv...)
-}
-
-// InfoCtx logs an info-level message with request ID from context if present.
-func InfoCtx(ctx context.Context, tag, msg string, kv ...any) {
-	if !shouldLog(LevelInfo) {
-		return
-	}
-	outputCtx(ctx, LevelInfo, tag, msg, kv...)
-}
-
-// WarnCtx logs a warning-level message with request ID from context if present.
-func WarnCtx(ctx context.Context, tag, msg string, kv ...any) {
-	if !shouldLog(LevelWarn) {
-		return
-	}
-	outputCtx(ctx, LevelWarn, tag, msg, kv...)
-}
-
-// ErrorCtx logs an error-level message with request ID from context if present.
-func ErrorCtx(ctx context.Context, tag, msg string, kv ...any) {
-	if !shouldLog(LevelError) {
-		return
-	}
-	outputCtx(ctx, LevelError, tag, msg, kv...)
-}
-
-func outputCtx(ctx context.Context, l Level, tag, msg string, kv ...any) {
-	if ctx != nil {
-		if reqID, ok := ctx.Value(RequestIDKey).(string); ok && reqID != "" {
-			kv = append([]any{"req_id", reqID}, kv...)
-		}
-	}
-	output(l, tag, msg, kv...)
 }
 
 func output(l Level, tag, msg string, kv ...any) {

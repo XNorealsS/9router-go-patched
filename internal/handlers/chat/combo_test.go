@@ -130,45 +130,6 @@ func TestApplyComboStrategy_empty(t *testing.T) {
 	})
 }
 
-func TestResetComboState(t *testing.T) {
-	h := NewChatHandler(nil)
-	models := []string{"a", "b", "c"}
-
-	// Advance combo1 state
-	h.ApplyComboStrategy("round-robin", models, "combo1", 1)
-	h.ApplyComboStrategy("round-robin", models, "combo1", 1)
-
-	// Reset combo1
-	h.ResetComboState("combo1")
-
-	// Should start fresh (index 0)
-	got := h.ApplyComboStrategy("round-robin", models, "combo1", 1)
-	if !reflect.DeepEqual(got, models) {
-		t.Errorf("after reset: got %v, want %v", got, models)
-	}
-}
-
-func TestResetComboState_all(t *testing.T) {
-	h := NewChatHandler(nil)
-	models := []string{"a", "b"}
-
-	h.ApplyComboStrategy("round-robin", models, "combo1", 1)
-	h.ApplyComboStrategy("round-robin", models, "combo2", 1)
-
-	// Reset all
-	h.ResetComboState("")
-
-	// Both should start fresh
-	got1 := h.ApplyComboStrategy("round-robin", models, "combo1", 1)
-	got2 := h.ApplyComboStrategy("round-robin", models, "combo2", 1)
-	if !reflect.DeepEqual(got1, models) {
-		t.Errorf("combo1 after reset all: got %v, want %v", got1, models)
-	}
-	if !reflect.DeepEqual(got2, models) {
-		t.Errorf("combo2 after reset all: got %v, want %v", got2, models)
-	}
-}
-
 func TestExportedWrappers(t *testing.T) {
 	h := NewChatHandler(nil)
 	models := []string{"a", "b"}

@@ -225,11 +225,6 @@ func logTail(path string, maxLines int) string {
 	return strings.Join(lines, "\n")
 }
 
-// GetHeadroomLogTail returns the last lines of the proxy log.
-func GetHeadroomLogTail(dataDir string, maxLines int) string {
-	return logTail(filepath.Join(headroomDir(dataDir), "proxy.log"), maxLines)
-}
-
 // GetInstallLogTail returns the last lines of the install/uninstall log.
 func GetInstallLogTail(dataDir string, maxLines int) string {
 	return logTail(filepath.Join(headroomDir(dataDir), "install.log"), maxLines)

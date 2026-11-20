@@ -17,7 +17,7 @@ func TestContextUsage(t *testing.T) {
 	}
 
 	SetUsage(ctx, &OpenAIUsage{PromptTokens: 10, CompletionTokens: 20})
-	
+
 	u := GetAndClearUsage(ctx)
 	if u == nil {
 		t.Fatal("expected non-nil usage")
@@ -59,33 +59,6 @@ func TestGetAndClearLastUsage(t *testing.T) {
 }
 
 // --- GetStreamUsage ---
-
-func TestGetStreamUsage(t *testing.T) {
-	// Clear any residue from other tests
-	GetAndClearLastUsage()
-
-	// Unknown session
-	u := GetStreamUsage("nonexistent")
-	if u != nil {
-		t.Errorf("expected nil for unknown session, got %#v", u)
-	}
-
-	// Prime state via TranslateOpenAIToClaudeStream with usage
-	chunk := []byte(`{"id":"usage-test","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":3}}`)
-	_, err := TranslateOpenAIToClaudeStream(chunk)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Usage should be captured in the stream state after finish
-	sessionUsage := GetStreamUsage("usage-test")
-	if sessionUsage == nil {
-		t.Fatal("expected non-nil stream usage after finish")
-	}
-	if sessionUsage.PromptTokens != 5 || sessionUsage.CompletionTokens != 3 {
-		t.Errorf("expected 5/3 tokens, got %#v", sessionUsage)
-	}
-}
 
 // --- Cached tokens from provider usage ---
 

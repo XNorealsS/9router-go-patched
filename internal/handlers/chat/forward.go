@@ -17,20 +17,6 @@ import (
 	"9router/proxy/internal/translator"
 )
 
-// forwardRequest sends the request to the upstream provider and streams/pipes the response.
-func (h *ChatHandler) forwardRequest(
-	ctx context.Context,
-	w http.ResponseWriter,
-	cfg *providers.ProviderConfig,
-	apiKey string,
-	body []byte,
-	isStream bool,
-	translateResponse bool,
-	metrics *streamMetrics,
-) error {
-	return h.forwardRequestWithClient(ctx, h.Client, w, cfg, apiKey, body, isStream, translateResponse, metrics)
-}
-
 func (h *ChatHandler) forwardRequestWithClient(
 	ctx context.Context,
 	client *http.Client,

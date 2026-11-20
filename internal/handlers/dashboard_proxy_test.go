@@ -11,7 +11,7 @@ import (
 	"9router/proxy/internal/db"
 )
 
-func TestSetupServerRouterWithDashboard_UnifiedGateway(t *testing.T) {
+func TestSetupServerRouterWithGateway_UnifiedGateway(t *testing.T) {
 	dash := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/dashboard":
@@ -36,7 +36,7 @@ func TestSetupServerRouterWithDashboard_UnifiedGateway(t *testing.T) {
 	repo := db.NewRepo(database)
 
 	r := chi.NewRouter()
-	SetupServerRouterWithDashboard(r, repo, NewTokenSaverConfig(false, false, false), dashProxy)
+	SetupServerRouterWithGateway(r, repo, NewTokenSaverConfig(false, false, false), dashProxy, GatewayRuntimeInfo{})
 
 	// 1. Go /health stays served by Go directly.
 	rec := httptest.NewRecorder()

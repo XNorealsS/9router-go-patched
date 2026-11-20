@@ -114,10 +114,6 @@ func wsField(tag, payload []byte) []byte {
 
 func wsStr(fieldNum int, s string) []byte   { return wsField(wsTag(fieldNum, 2), []byte(s)) }
 func wsMsg(fieldNum int, msg []byte) []byte { return wsField(wsTag(fieldNum, 2), msg) }
-func wsVarintField(fieldNum int, v uint64) []byte {
-	return append(wsTag(fieldNum, 0), wsVarint(v)...)
-}
-
 func wsMetadata(apiKey, sessionID string) []byte {
 	return bytes.Join([][]byte{
 		wsStr(1, apiKey), wsStr(2, wsIDEName), wsStr(3, wsIDEVers),

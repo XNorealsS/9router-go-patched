@@ -100,13 +100,6 @@ func (c *TokenSaverConfig) SetInjectionGuard(v bool) {
 	c.injectionGuardEnabled = v
 }
 
-// Snapshot returns all current values.
-func (c *TokenSaverConfig) Snapshot() (rtk, caveman, ponytail bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.rtkEnabled, c.cavemanEnabled, c.ponytailEnabled
-}
-
 // SetAll sets all flags atomically.
 func (c *TokenSaverConfig) SetAll(rtk, caveman, ponytail bool) {
 	c.mu.Lock()

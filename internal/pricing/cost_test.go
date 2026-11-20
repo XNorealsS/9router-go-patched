@@ -39,18 +39,6 @@ func TestEstimateCost_PrefixMatch(t *testing.T) {
 	}
 }
 
-func TestGetPricing(t *testing.T) {
-	p := GetPricing("gpt-4o")
-	if p.InputPer1M != 2.5 || p.OutputPer1M != 10.0 {
-		t.Errorf("got %#v", p)
-	}
-
-	p = GetPricing("nonexistent")
-	if p != defaultPricing {
-		t.Errorf("expected default, got %#v", p)
-	}
-}
-
 func TestLookupPricing_ExactMatch(t *testing.T) {
 	p := lookupPricing("deepseek-v4-flash")
 	if p.InputPer1M != 0.07 {

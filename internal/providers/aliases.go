@@ -86,11 +86,3 @@ var ProviderAliasMap = map[string]string{
 	"ws":             "windsurf",
 	"zd":             "zed",
 }
-
-// ResolveAlias returns the canonical provider ID for an alias, or the alias itself if not found.
-func ResolveAlias(alias string) string {
-	if canonical, ok := ProviderAliasMap[alias]; ok {
-		return canonical
-	}
-	return alias
-}

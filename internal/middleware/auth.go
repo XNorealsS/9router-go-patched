@@ -1,14 +1,13 @@
 package middleware
 
 import (
-	"context"
 	"9router/proxy/internal/log"
+	"context"
 	"net/http"
 	"strings"
 
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/handlerutil"
-	"9router/proxy/internal/models"
 )
 
 // ContextKey is a custom type for context keys to avoid collisions.
@@ -51,19 +50,6 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-// GetAuthenticatedApiKey retrieves the authenticated APIKey object from the request context.
-func GetAuthenticatedApiKey(r *http.Request) *models.APIKey {
-	val := r.Context().Value(ApiKeyContextKey)
-	if val == nil {
-		return nil
-	}
-	keyObj, ok := val.(*models.APIKey)
-	if !ok {
-		return nil
-	}
-	return keyObj
 }
 
 // ExtractApiKey extracts the client API key from the request.

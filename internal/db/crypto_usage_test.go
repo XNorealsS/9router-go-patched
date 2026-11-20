@@ -170,9 +170,10 @@ func TestMergeUsageDaily_ConcurrentMultiHandleAtomic(t *testing.T) {
 		t.Fatalf("MergeUsageDaily concurrent error: %v", err)
 	}
 
-	raw, err := repo1.GetUsageDaily(dateKey)
+	var raw string
+	err = repo1.db.QueryRow(`SELECT data FROM usageDaily WHERE dateKey = ?`, dateKey).Scan(&raw)
 	if err != nil {
-		t.Fatalf("GetUsageDaily: %v", err)
+		t.Fatalf("read usageDaily: %v", err)
 	}
 	var got map[string]int
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {

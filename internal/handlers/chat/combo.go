@@ -908,17 +908,3 @@ func (h *ChatHandler) handleFusion(ctx context.Context, w http.ResponseWriter, b
 	}
 	h.handleSingleModel(ctx, cw, judgeJSON, modelInfo, isStream, translateResponse)
 }
-
-// ResetComboState clears the sticky state for combos
-func (h *ChatHandler) ResetComboState(comboName string) {
-	h.stickyMu.Lock()
-	defer h.stickyMu.Unlock()
-	if h.stickyState == nil {
-		h.stickyState = make(map[string]*comboStickyState)
-	}
-	if comboName != "" {
-		delete(h.stickyState, comboName)
-	} else {
-		h.stickyState = make(map[string]*comboStickyState)
-	}
-}

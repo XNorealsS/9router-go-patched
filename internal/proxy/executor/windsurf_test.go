@@ -190,3 +190,7 @@ func TestForwardWindsurf_UpstreamError(t *testing.T) {
 		t.Errorf("expected 400, got %d", ue.StatusCode)
 	}
 }
+
+func wsVarintField(fieldNum int, v uint64) []byte {
+	return append(wsTag(fieldNum, 0), wsVarint(v)...)
+}

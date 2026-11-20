@@ -246,13 +246,6 @@ func TranslateOpenAIToClaude(openaiResp []byte) ([]byte, *OpenAIUsage, error) {
 	return out, usage, nil
 }
 
-// TranslateOpenAIToClaudeStream converts a single OpenAI SSE chunk JSON payload to Claude SSE format.
-// It keys the per-stream translation state by chunk.ID; callers with concurrent
-// streams should prefer TranslateOpenAIToClaudeStreamSession to scope state per request.
-func TranslateOpenAIToClaudeStream(openaiChunk []byte) ([]byte, error) {
-	return TranslateOpenAIToClaudeStreamSession("", openaiChunk)
-}
-
 // TranslateOpenAIToClaudeStreamSession is like TranslateOpenAIToClaudeStream but
 // scopes the translation state to sessionKey instead of chunk.ID. A stream that
 // spans multiple calls MUST pass the same sessionKey every time, and SHOULD

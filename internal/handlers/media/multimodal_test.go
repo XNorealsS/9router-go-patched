@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"9router/proxy/internal/db"
-	"9router/proxy/internal/handlers/chat"
 	"9router/proxy/internal/providers"
 )
 
@@ -415,18 +414,6 @@ func TestHandleVideoExtensions_Success(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestHandleVideoGet_missingID(t *testing.T) {
-	handler := chat.NewChatHandler(nil)
-	req := httptest.NewRequest("GET", "/v1/videos/", nil)
-	rec := httptest.NewRecorder()
-
-	handler.HandleVideoGet(rec, req)
-
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", rec.Code)
 	}
 }
 

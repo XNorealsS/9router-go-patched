@@ -24,14 +24,6 @@ func RequestID(next http.Handler) http.Handler {
 	})
 }
 
-// GetRequestID retrieves the request ID from an http.Request.
-func GetRequestID(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	return GetRequestIDFromContext(r.Context())
-}
-
 // GetRequestIDFromContext retrieves the request ID from a context.Context.
 func GetRequestIDFromContext(ctx context.Context) string {
 	if ctx == nil {

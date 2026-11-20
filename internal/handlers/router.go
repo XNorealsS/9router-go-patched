@@ -106,17 +106,6 @@ func SetupRoutes(r interface {
 	r.Get("/debug/traces", HandleDebugTraces)
 }
 
-// SetupServerRouter mounts public endpoints (/health, /api/hello) and
-// API-key protected routes (all engine + admin routes) on the chi router.
-func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
-	SetupServerRouterWithDashboard(r, repo, ts, nil)
-}
-
-// SetupServerRouterWithDashboard configures unified 1-gateway routing using default runtime info.
-func SetupServerRouterWithDashboard(r chi.Router, repo *db.Repo, ts *TokenSaverConfig, dashboardProxy http.Handler) {
-	SetupServerRouterWithGateway(r, repo, ts, dashboardProxy, GatewayRuntimeInfo{})
-}
-
 // SetupServerRouterWithGateway configures unified 1-gateway routing: Go handles
 // /health, /api/hello, /gateway HTML shell, and API-key authenticated proxy/gateway
 // routes, while unmatched UI/management routes forward to dashboardProxy.

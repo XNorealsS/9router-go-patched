@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"9router/proxy/internal/models"
 )
@@ -22,19 +21,6 @@ func NewRepo(db *sql.DB) *Repo {
 // RawDB returns the underlying *sql.DB connection for direct queries.
 func (r *Repo) RawDB() *sql.DB {
 	return r.db
-}
-
-// ValidateApiKey checks if the given API key exists and is active.
-func (r *Repo) ValidateApiKey(key string) (bool, error) {
-	var active int
-	err := r.db.QueryRow("SELECT isActive FROM apiKeys WHERE key = ? LIMIT 1", key).Scan(&active)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return active == 1, nil
 }
 
 // GetApiKeyByKey retrieves detailed APIKey information by key.
@@ -56,19 +42,6 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 
 // GetProviderConnectionByID retrieves a single provider connection by primary key.
 // Returns nil, nil when no row matches.
-
-// CreateProviderConnection inserts a new provider connection.
-func (r *Repo) CreateProviderConnection(id, provider, authType, name string, apiKey string) error {
-	data, err := json.Marshal(map[string]string{"apiKey": apiKey})
-	if err != nil {
-		return fmt.Errorf("marshal provider connection data: %w", err)
-	}
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := r.InsertProviderConnection(id, provider, authType, name, string(data), now, now); err != nil {
-		return fmt.Errorf("create provider connection: %w", err)
-	}
-	return nil
-}
 
 // InsertProviderConnection inserts a provider connection row, encrypting sensitive
 // fields when CREDENTIAL_ENCRYPTION_KEY is configured.
@@ -336,23 +309,6 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 		combo.Strategy = strat
 	}
 
-	return &combo, nil
-}
-
-// GetComboById retrieves a combo configuration by its ID.
-func (r *Repo) GetComboById(id string) (*models.Combo, error) {
-	var combo models.Combo
-	err := r.db.QueryRow(
-		"SELECT id, name, kind, models, createdAt, updatedAt FROM combos WHERE id = ? LIMIT 1",
-		id,
-	).Scan(&combo.ID, &combo.Name, &combo.Kind, &combo.Models, &combo.CreatedAt, &combo.UpdatedAt)
-
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
 	return &combo, nil
 }
 

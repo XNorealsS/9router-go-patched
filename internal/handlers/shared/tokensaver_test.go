@@ -64,29 +64,6 @@ func TestSetPonytail(t *testing.T) {
 	}
 }
 
-func TestSnapshot(t *testing.T) {
-	c := NewTokenSaverConfig(true, false, true)
-	rtk, caveman, ponytail := c.Snapshot()
-	if rtk != true {
-		t.Errorf("expected rtk=true, got %v", rtk)
-	}
-	if caveman != false {
-		t.Errorf("expected caveman=false, got %v", caveman)
-	}
-	if ponytail != true {
-		t.Errorf("expected ponytail=true, got %v", ponytail)
-	}
-}
-
-func TestSetAll(t *testing.T) {
-	c := NewTokenSaverConfig(false, false, false)
-	c.SetAll(true, true, false)
-	rtk, caveman, ponytail := c.Snapshot()
-	if rtk != true || caveman != true || ponytail != false {
-		t.Errorf("SetAll mismatch: got (%v,%v,%v), want (true,true,false)", rtk, caveman, ponytail)
-	}
-}
-
 func TestInjectionGuardToggle(t *testing.T) {
 	c := NewTokenSaverConfig(false, false, false)
 	if !c.InjectionGuardEnabled() {

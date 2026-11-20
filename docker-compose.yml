@@ -10,8 +10,6 @@ services:
       - HOST=0.0.0.0
       - PORT=20128
       - DATA_DIR=/data
-      - DASHBOARD_PORT=3000
-      - DASHBOARD_URL=http://127.0.0.1:3000
       # Set these in production (.env or compose overrides):
       # - INITIAL_PASSWORD=change-me
       # - JWT_SECRET=change-me-to-a-long-random-secret

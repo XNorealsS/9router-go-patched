@@ -92,8 +92,3 @@ type StatusWriter struct {
 	http.ResponseWriter
 	Status int
 }
-
-func (w *StatusWriter) WriteHeader(status int) {
-	w.Status = status
-	w.ResponseWriter.WriteHeader(status)
-}

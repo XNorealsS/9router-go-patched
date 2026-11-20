@@ -21,13 +21,13 @@ type AntigravityRequest struct {
 
 // AntigravityNativeToolNames are tool names preserved without suffix.
 var AntigravityNativeToolNames = map[string]bool{
-	"browser_subagent":                           true,
-	"command_status":                             true,
-	"find_by_name":                               true,
-	"generate_image":                             true,
-	"grep_search":                                true,
-	"list_dir":                                   true,
-	"list_resources":                             true,
+	"browser_subagent": true,
+	"command_status":   true,
+	"find_by_name":     true,
+	"generate_image":   true,
+	"grep_search":      true,
+	"list_dir":         true,
+	"list_resources":   true,
 	"mcp_sequential-thinking_sequentialthinking": true,
 	"multi_replace_file_content":                 true,
 	"notify_user":                                true,
@@ -400,39 +400,3 @@ func WrapAntigravityImageRequest(prompt, base64Input, projectID, cleanModel, asp
 
 	return json.Marshal(wrapper)
 }
-
-// FormatAntigravityImageResponse converts a Gemini response containing inlineData to OpenAI images response format.
-func FormatAntigravityImageResponse(rawGeminiResp []byte, prompt string) ([]byte, error) {
-	unwrapped := UnwrapAntigravityResponse(rawGeminiResp)
-	var resp GeminiResponse
-	if err := json.Unmarshal(unwrapped, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal gemini image response: %w", err)
-	}
-
-	var images []map[string]string
-	if len(resp.Candidates) > 0 && resp.Candidates[0].Content != nil {
-		for _, part := range resp.Candidates[0].Content.Parts {
-			if part.InlineData != nil && part.InlineData.Data != "" {
-				images = append(images, map[string]string{
-					"b64_json": part.InlineData.Data,
-				})
-			}
-		}
-	}
-
-	if len(images) == 0 {
-		images = append(images, map[string]string{
-			"b64_json":       "",
-			"revised_prompt": prompt,
-		})
-	}
-
-	result := map[string]any{
-		"created": time.Now().Unix(),
-		"data":    images,
-	}
-
-	return json.Marshal(result)
-}
-
-

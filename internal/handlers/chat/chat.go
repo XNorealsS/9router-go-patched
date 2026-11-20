@@ -2,9 +2,9 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -194,11 +194,6 @@ func (h *ChatHandler) handleMessagesSingleModel(ctx context.Context, w http.Resp
 		}
 		handlerutil.WriteJSONError(cw, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", result))
 	}
-}
-
-// HandleHealth responds with a simple health check status.
-func (h *ChatHandler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // HandleVersion responds with the proxy version details and update status.
@@ -405,52 +400,6 @@ func (h *ChatHandler) HandleModelsByKind(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// HandleAudioVoices lists available TTS voices for a provider.
-// GET /v1/audio/voices?provider={alias}
-func (h *ChatHandler) HandleAudioVoices(w http.ResponseWriter, r *http.Request) {
-	provider := r.URL.Query().Get("provider")
-	if provider == "" {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "missing provider query parameter")
-		return
-	}
-
-	p := resolveProviderAlias(provider)
-	cfg, ok := providers.KnownProviders[p]
-	if !ok {
-		handlerutil.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("unknown provider: %s", provider))
-		return
-	}
-
-	voicesURL := cfg.VoicesURL
-	if voicesURL == "" && cfg.TTSURL != "" {
-		voicesURL = strings.TrimSuffix(cfg.TTSURL, "/text-to-speech") + "/voices"
-	}
-	if voicesURL == "" {
-		handlerutil.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("no voices endpoint for provider: %s", provider))
-		return
-	}
-
-	req, err := http.NewRequestWithContext(r.Context(), "GET", voicesURL, nil)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("create request: %v", err))
-		return
-	}
-	if cfg.AuthHeader != "" && cfg.DefaultAPIKey != "" {
-		handlerutil.SetAuthHeader(req, cfg.DefaultAPIKey, cfg.AuthHeader, cfg.AuthScheme)
-	}
-
-	resp, err := h.Client.Do(req)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("upstream error: %v", err))
-		return
-	}
-	defer resp.Body.Close()
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
-}
-
 // HandleCountTokens estimates Anthropic-format token count.
 // POST /v1/messages/count_tokens
 func (h *ChatHandler) HandleCountTokens(w http.ResponseWriter, r *http.Request) {
@@ -465,11 +414,6 @@ func (h *ChatHandler) HandleCountTokens(w http.ResponseWriter, r *http.Request) 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"input_tokens": inputTokens,
 	})
-}
-
-// EstimateAnthropicTokens estimates input token count from Claude-format body.
-func EstimateAnthropicTokens(body []byte) int {
-	return estimateAnthropicTokens(body)
 }
 
 // estimateAnthropicTokens estimates input token count from Claude-format body.
@@ -572,16 +516,6 @@ func messageContentChars(content any) int {
 	return countValueChars(content)
 }
 
-// MessageContentChars counts characters in a message content field.
-func MessageContentChars(msg any) int {
-	return messageContentChars(msg)
-}
-
-// ContentBlockChars counts characters in a single content block.
-func ContentBlockChars(block any) int {
-	return contentBlockChars(block)
-}
-
 func contentBlockChars(block any) int {
 	if block == nil {
 		return 0
@@ -602,34 +536,6 @@ func contentBlockChars(block any) int {
 	default:
 		return countValueChars(block)
 	}
-}
-
-// HandleResponsesCompact forwards to chat handler with compact flag.
-// POST /v1/responses/compact
-func (h *ChatHandler) HandleResponsesCompact(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "failed to read request body")
-		return
-	}
-	defer r.Body.Close()
-
-	var m map[string]any
-	if err := json.Unmarshal(body, &m); err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, "invalid JSON body")
-		return
-	}
-	m["_compact"] = true
-	body, err = json.Marshal(m)
-	if err != nil {
-		log.Error("chat", "marshal compact body failed", "error", err)
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to process request")
-		return
-	}
-
-	newReq, _ := http.NewRequestWithContext(r.Context(), "POST", "/v1/chat/completions", bytes.NewReader(body))
-	newReq.Header = r.Header
-	h.HandleChatCompletions(w, newReq)
 }
 
 // HandleOllamaChat handles Ollama-compatible /v1/api/chat endpoint.
