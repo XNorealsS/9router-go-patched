@@ -110,20 +110,33 @@ type GeminiRequest struct {
 	GenerationConfig  json.RawMessage `json:"generationConfig,omitempty"`
 }
 
+type geminiUsageMetadata struct {
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
+	CachedContentToken      int `json:"cachedContentToken,omitempty"`
+	CandidatesTokenDetails  *struct {
+		ReasoningTokens int `json:"reasoningTokens"`
+	} `json:"candidatesTokenDetails,omitempty"`
+}
+
+func (u *geminiUsageMetadata) cachedTokens() int {
+	if u == nil {
+		return 0
+	}
+	if u.CachedContentTokenCount > 0 {
+		return u.CachedContentTokenCount
+	}
+	return u.CachedContentToken
+}
+
 // GeminiResponse is the Gemini API response body (non-stream).
 type GeminiResponse struct {
 	Candidates []struct {
-		Content       *GeminiContent `json:"content,omitempty"`
-		FinishReason  string         `json:"finishReason,omitempty"`
+		Content      *GeminiContent `json:"content,omitempty"`
+		FinishReason string         `json:"finishReason,omitempty"`
 	} `json:"candidates"`
-	UsageMetadata *struct {
-		PromptTokenCount       int `json:"promptTokenCount"`
-		CandidatesTokenCount   int `json:"candidatesTokenCount"`
-		CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
-		CandidatesTokenDetails *struct {
-			ReasoningTokens int `json:"reasoningTokens"`
-		} `json:"candidatesTokenDetails,omitempty"`
-	} `json:"usageMetadata,omitempty"`
+	UsageMetadata *geminiUsageMetadata `json:"usageMetadata,omitempty"`
 }
 
 // GeminiStreamChunk represents one SSE chunk from Gemini stream.
@@ -133,11 +146,7 @@ type GeminiStreamChunk struct {
 		FinishReason string         `json:"finishReason,omitempty"`
 		Index        int            `json:"index"`
 	} `json:"candidates"`
-	UsageMetadata *struct {
-		PromptTokenCount       int `json:"promptTokenCount"`
-		CandidatesTokenCount   int `json:"candidatesTokenCount"`
-		CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
-	} `json:"usageMetadata,omitempty"`
+	UsageMetadata *geminiUsageMetadata `json:"usageMetadata,omitempty"`
 }
 
 // TranslateOpenAIToGemini converts an OpenAI-compatible request body to Gemini native format.
@@ -447,7 +456,7 @@ func TranslateGeminiResponseToOpenAI(geminiBody []byte) ([]byte, *OpenAIUsage, e
 	if geminiResp.UsageMetadata != nil {
 		inputTokens = geminiResp.UsageMetadata.PromptTokenCount
 		outputTokens = geminiResp.UsageMetadata.CandidatesTokenCount
-		cachedTokens = geminiResp.UsageMetadata.CachedContentTokenCount
+		cachedTokens = geminiResp.UsageMetadata.cachedTokens()
 		if geminiResp.UsageMetadata.CandidatesTokenDetails != nil {
 			reasoningTokens = geminiResp.UsageMetadata.CandidatesTokenDetails.ReasoningTokens
 		}
@@ -622,7 +631,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 			if geminiChunk.UsageMetadata != nil {
 				inputTokens = geminiChunk.UsageMetadata.PromptTokenCount
 				outputTokens = geminiChunk.UsageMetadata.CandidatesTokenCount
-				cachedTokens = geminiChunk.UsageMetadata.CachedContentTokenCount
+				cachedTokens = geminiChunk.UsageMetadata.cachedTokens()
 			}
 
 			state.Usage = &OpenAIUsage{
@@ -657,7 +666,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 		// Just usage update chunk
 		inputTokens := geminiChunk.UsageMetadata.PromptTokenCount
 		outputTokens := geminiChunk.UsageMetadata.CandidatesTokenCount
-		cachedTokens := geminiChunk.UsageMetadata.CachedContentTokenCount
+		cachedTokens := geminiChunk.UsageMetadata.cachedTokens()
 		state.Usage = &OpenAIUsage{
 			PromptTokens:     inputTokens,
 			CompletionTokens: outputTokens,

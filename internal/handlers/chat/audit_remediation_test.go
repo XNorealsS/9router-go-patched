@@ -14,7 +14,6 @@ import (
 	"9router/proxy/internal/db"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/oauth"
-	"9router/proxy/internal/translator"
 )
 
 func TestGetClientForConnection_SupportsSOCKS5AndStrictProxyFailsClosed(t *testing.T) {

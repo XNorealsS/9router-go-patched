@@ -140,19 +140,21 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	}
 
 	// 0. Check exact model alias first (even if string contains "/")
-	if aliasTarget, err := h.Repo.GetModelAlias(modelStr); err == nil && aliasTarget != "" {
-		if strings.Contains(aliasTarget, "/") {
-			parts := strings.SplitN(aliasTarget, "/", 2)
-			provider := resolveProviderAlias(parts[0])
-			if _, ok := providers.KnownProviders[provider]; !ok {
-				if info := h.resolvePrefixProvider(provider, parts[1]); info != nil {
-					return info, nil
+	if h.Repo != nil {
+		if aliasTarget, err := h.Repo.GetModelAlias(modelStr); err == nil && aliasTarget != "" {
+			if strings.Contains(aliasTarget, "/") {
+				parts := strings.SplitN(aliasTarget, "/", 2)
+				provider := resolveProviderAlias(parts[0])
+				if _, ok := providers.KnownProviders[provider]; !ok {
+					if info := h.resolvePrefixProvider(provider, parts[1]); info != nil {
+						return info, nil
+					}
 				}
+				return &ModelInfo{
+					Provider: provider,
+					Model:    parts[1],
+				}, nil
 			}
-			return &ModelInfo{
-				Provider: provider,
-				Model:    parts[1],
-			}, nil
 		}
 	}
 
@@ -169,6 +171,10 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 			}
 		}
 		return &ModelInfo{Provider: provider, Model: model}, nil
+	}
+
+	if h.Repo == nil {
+		return nil, fmt.Errorf("could not resolve model: %s", modelStr)
 	}
 
 	// 2. Check if it's a model alias (e.g., "gpt-4o" -> "openai/gpt-4o")
@@ -229,6 +235,9 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 // resolvePrefixProvider checks if a provider name is a providerNode prefix.
 // If so, it finds the matching connection and returns a pinned ModelInfo.
 func (h *ChatHandler) resolvePrefixProvider(prefix string, model string) *ModelInfo {
+	if h.Repo == nil {
+		return nil
+	}
 	node, _, err := h.Repo.GetProviderNodeByPrefix(prefix)
 	if err != nil || node == nil {
 		return nil
