@@ -5,12 +5,18 @@ set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || exec sudo -E bash "$0" "$@"
 
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SRC_DIR="${SCRIPT_DIR}"
+MODE="bundle"
+if [ ! -f "${SCRIPT_DIR}/bin/9router-go" ] && [ -f "${SCRIPT_DIR}/../cmd/9router-go/main.go" ]; then
+  SRC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+  MODE="repo"
+fi
 DEST_DIR="${DEST_DIR:-/opt/9router-gateway}"
 SERVICE_PATH="/etc/systemd/system/9router-gateway.service"
 
-# 1. Discover npm/nvm Node bin path so systemd & upgrade see existing global 9router/npm
-for d in /usr/local/bin /root/.npm-global/bin /root/.nvm/versions/node/*/bin; do
+# 1. Discover npm/nvm Node and Go bin paths so systemd & repo builds work reliably
+for d in /usr/local/go/bin /usr/local/bin /root/.npm-global/bin /root/.nvm/versions/node/*/bin; do
   [ -d "${d}" ] && export PATH="${d}:${PATH}"
 done
 if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
@@ -49,9 +55,21 @@ for proc_pat in '/9router-go' 'node.*9router' 'bin/9router '; do
   fi
 done
 
-# 4. Copy bundle to /opt/9router-gateway (if extracted elsewhere)
+# 4. Install binary + scripts into /opt/9router-gateway (bundle or git clone)
 mkdir -p "${DEST_DIR}/bin" "${DEST_DIR}/systemd"
-if [ "$(realpath "${SRC_DIR}")" != "$(realpath "${DEST_DIR}")" ]; then
+if [ "${MODE}" = "repo" ]; then
+  if ! command -v go >/dev/null 2>&1; then
+    echo "[install] ERROR: Go compiler not found in PATH (required when installing from git clone). Install Go 1.24+ or use Docker / prebuilt .tar.gz bundle." >&2
+    exit 1
+  fi
+  echo "[install] Building 9router-go from git repository (${SRC_DIR})..."
+  (cd "${SRC_DIR}" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "${DEST_DIR}/bin/9router-go" ./cmd/9router-go/)
+  cp -a "${SRC_DIR}/deploy/start.sh" "${DEST_DIR}/bin/start.sh"
+  cp -a "${SRC_DIR}/deploy/9router-gateway.service" "${DEST_DIR}/systemd/9router-gateway.service"
+  cp -a "${SRC_DIR}/.env.example" "${DEST_DIR}/.env.example"
+  cp -a "${SRC_DIR}/deploy/README_DEPLOY.md" "${DEST_DIR}/README_DEPLOY.md"
+  cp -a "${SRC_DIR}/deploy/install.sh" "${DEST_DIR}/install.sh"
+elif [ "$(realpath "${SRC_DIR}")" != "$(realpath "${DEST_DIR}")" ]; then
   cp -a "${SRC_DIR}/bin/9router-go" "${DEST_DIR}/bin/9router-go"
   cp -a "${SRC_DIR}/bin/start.sh" "${DEST_DIR}/bin/start.sh"
   cp -a "${SRC_DIR}/systemd/9router-gateway.service" "${DEST_DIR}/systemd/9router-gateway.service"

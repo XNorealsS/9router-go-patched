@@ -13,7 +13,19 @@ docker compose up -d --build
 
 Open: `http://<SERVER_IP>:20128/dashboard` (put Nginx/Caddy TLS + IP/firewall restrictions in front when exposing publicly).
 
-## Option B — Bare-Metal Linux Bundle (`dist/9router-gateway-linux-amd64.tar.gz`)
+## Option B — Direct `git clone` on Linux Server (Build & Replace)
+
+If Go (`>= 1.24`, recommended `1.26`) and Git are installed on your Linux server:
+
+```bash
+git clone https://github.com/XNorealsS/9router-go-patched.git
+cd 9router-go-patched
+sudo INITIAL_PASSWORD='your-admin-password' bash deploy/install.sh
+```
+
+`deploy/install.sh` auto-detects repo mode, compiles `./cmd/9router-go/` with `CGO_ENABLED=0`, backs up your existing SQLite DB, stops the old `9router` process, and enables `9router-gateway.service`.
+
+## Option C — Bare-Metal Linux Bundle (`dist/9router-gateway-linux-amd64.tar.gz`)
 
 ### 1-Command Replace / Upgrade Existing 9Router (Recommended)
 Build the bundle from Windows PowerShell (`scripts/package-linux.ps1`), upload `dist/9router-gateway-linux-amd64.tar.gz` to the Linux server, and run `install.sh`:
