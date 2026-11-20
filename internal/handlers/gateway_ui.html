@@ -499,7 +499,8 @@
         } else {
           for (const s of stats) {
             const tr = document.createElement("tr");
-            tr.innerHTML = '<td>' + esc(s.provider + "/" + s.model) + '</td><td>' + s.count + '</td><td>' + s.errors + '</td><td>' + Math.round(s.p50Ms) + 'ms</td><td>' + Math.round(s.p95Ms) + 'ms</td>';
+            const label = s.key || ((s.provider || "") + (s.model ? "/" + s.model : "")) || "-";
+            tr.innerHTML = '<td>' + esc(label) + '</td><td>' + s.count + '</td><td>' + s.errors + '</td><td>' + Math.round(s.p50Ms) + 'ms</td><td>' + Math.round(s.p95Ms) + 'ms</td>';
             traceBody.appendChild(tr);
           }
         }

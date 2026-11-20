@@ -93,7 +93,7 @@ func ForwardGemini(ctx context.Context, client *http.Client, cfg *providers.Prov
 		if envUA := os.Getenv("ANTIGRAVITY_USER_AGENT"); envUA != "" {
 			userAgent = envUA
 		} else {
-			userAgent = "antigravity/ide/2.1.1"
+			userAgent = "antigravity/hub/2.24.0 darwin/arm64"
 		}
 	}
 

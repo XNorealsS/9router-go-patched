@@ -123,15 +123,15 @@ func TestNormalizeAntigravityModel(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"gemini-3.5-flash-high", "gemini-3-flash-agent"},
-		{"gemini-3.5-flash-medium", "gemini-3.5-flash-low"},
-		{"gemini-3.5-flash-extra-low", "gemini-3.5-flash-extra-low"},
-		{"gemini-3.1-pro-high", "gemini-pro-agent"},
-		{"gemini-3-pro-high", "gemini-pro-agent"},
-		{"gemini-3-pro-low", "gemini-3.1-pro-low"},
-		{"gemini-default", "gemini-3.5-flash-low"},
-		{"claude-sonnet-4-6", "claude-sonnet-4-6"},
-		{"gemini-3-flash-agent", "gemini-3-flash-agent"},
+		{"gemini-3.5-flash-high", "gemini-3.8-flash-high"},
+		{"gemini-3.5-flash-medium", "gemini-3.8-flash-medium"},
+		{"gemini-3.5-flash-extra-low", "gemini-3.8-flash-low"},
+		{"gemini-3.1-pro-high", "gemini-4-hydrogen-high"},
+		{"gemini-3-pro-high", "gemini-4-hydrogen-high"},
+		{"gemini-3-pro-low", "gemini-4-hydrogen-low"},
+		{"gemini-default", "gemini-3.8-flash-medium"},
+		{"claude-sonnet-4-6", "claude-sonnet-5-5-medium"},
+		{"gemini-3-flash", "gemini-3-flash"},
 	}
 
 	for _, tt := range tests {
@@ -249,16 +249,25 @@ func TestStripCompetitivePrompts(t *testing.T) {
 
 func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 	validBackendModels := map[string]bool{
-		"gemini-3-flash-agent":       true,
-		"gemini-3.5-flash-low":       true,
-		"gemini-3.5-flash-extra-low": true,
-		"gemini-pro-agent":           true,
-		"gemini-3.1-pro-low":         true,
-		"claude-sonnet-4-6":          true,
-		"claude-opus-4-6-thinking":   true,
-		"gpt-oss-120b-medium":        true,
-		"gemini-3-flash":             true,
-		"gemini-3.1-flash-image":     true,
+		"gemini-3-flash":         true,
+		"gemini-3.8-flash-low":   true,
+		"gemini-3.8-flash-medium": true,
+		"gemini-3.8-flash-high":  true,
+		"gemini-3.5-flash-lite":  true,
+		"gemini-3.1-flash-lite":  true,
+		"gemini-3.1-flash-image": true,
+		"gemini-4-argon-medium":  true,
+		"gemini-4-hydrogen-low":  true,
+		"gemini-4-hydrogen-medium": true,
+		"gemini-4-hydrogen-high": true,
+		"gemini-4-neon-medium":   true,
+		"claude-sonnet-5-5-low":  true,
+		"claude-sonnet-5-5-medium": true,
+		"claude-sonnet-5-5-high": true,
+		"claude-opus-5-5-low":    true,
+		"claude-opus-5-5-medium": true,
+		"claude-opus-5-5-high":   true,
+		"gpt-oss-120b-medium":    true,
 	}
 
 	for alias, targetModel := range translator.AntigravityModelSynonyms {

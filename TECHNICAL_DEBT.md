@@ -18,9 +18,10 @@ Documented technical debt, concurrency risks, resource leaks, and planned archit
 
 ## 🟡 Open Medium Items (Priority 3: Code Robustness & Performance)
 
-- **Plaintext Mode When `CREDENTIAL_ENCRYPTION_KEY` Is Unset**: Setting `CREDENTIAL_ENCRYPTION_KEY` enables AES-256-GCM at-rest encryption for provider secrets; when left unset (for Next.js dashboard SQLite compatibility), secrets remain cleartext JSON protected only by `0600` POSIX permissions.
-- **Arbitrary HTTP `image_url` in Gemini Translator**: Non-Google HTTP image URLs still emit `fileData{mimeType: "image/*"}`, which Google's Gemini API generally rejects unless the URI points to Google Files API.
-- **Unvalidated Live Antigravity Execution**: Full Go unit/race tests (`go test -race -count=1 ./...`), `go vet`, and `govulncheck` now pass locally (`go1.27.4`), but live Antigravity upstream protocol validation remains `BLOCKED` without authorized Antigravity OAuth credentials (see `ANTIGRAVITY_COMPATIBILITY.md`).
+- **Plaintext Mode When `CREDENTIAL_ENCRYPTION_KEY` Is Unset**: Setting `CREDENTIAL_ENCRYPTION_KEY` enables AES-256-GCM at-rest encryption for provider secrets; when left unset (required when sharing `data.sqlite` with Next.js `9router@0.5.119`, which reads plaintext JSON), secrets rely on `0700`/`0600` filesystem permissions and loopback binding.
+- **Per-Key Model Allowlist (`accessRestricted` / `accessAllow`)**: Next.js `apiKeys` schema stores `accessRestricted` and `accessAllow`, whereas Go `GetApiKeyByKey` (`internal/db/repos.go`) validates `isActive` without enforcing per-key model restrictions.
+- **Arbitrary HTTP `image_url` in Gemini Translator**: Non-Google HTTP image URLs still emit `fileData{mimeType: "image/*"}`, which Google's Gemini API generally rejects unless the URI points to Google Files API (`base64` data URLs are verified working live).
+- **Go Native Antigravity OAuth Token Refresh Env Requirement**: Live Antigravity API/streaming/tools/multimodal paths were verified against Google Cloud Code (`aicode-consumers`), while Go-initiated OAuth token refresh requires `ANTIGRAVITY_OAUTH_CLIENT_ID` and `ANTIGRAVITY_OAUTH_CLIENT_SECRET` env vars (Next.js bundles its own OAuth client credentials interactively; see `ANTIGRAVITY_COMPATIBILITY.md`).
 
 ---
 
